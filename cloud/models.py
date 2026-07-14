@@ -97,6 +97,19 @@ class UploadPostProfile(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class UserVideo(Base):
+    __tablename__ = "user_videos"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    job_id = Column(Text, nullable=False)
+    clip_index = Column(Integer, nullable=True)
+    r2_key = Column(Text, nullable=False)
+    title = Column(Text, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class StripeEvent(Base):
     __tablename__ = "stripe_events"
     id = Column(Text, primary_key=True)  # Stripe event.id — dedupe key

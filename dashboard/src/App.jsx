@@ -14,6 +14,7 @@ import TopUpModal from './components/TopUpModal';
 import LoginModal from './components/LoginModal';
 import TrialGate from './components/TrialGate';
 import AdvancedBanner from './components/AdvancedBanner';
+import HistoryTab from './components/HistoryTab';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError } from './lib/api';
 import { getApiUrl } from './config';
@@ -463,6 +464,16 @@ function App() {
           <Image size={20} />
           <span className="font-medium hidden lg:block">YouTube Studio</span>
         </button>
+
+        {billingEnabled && isSignedIn && (
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors ${activeTab === 'history' ? 'bg-primary/10 text-primary' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+          >
+            <History size={20} />
+            <span className="font-medium hidden lg:block">History</span>
+          </button>
+        )}
 
         {/* <button
           onClick={() => setActiveTab('gallery')}
@@ -951,6 +962,8 @@ function App() {
           )}
 
           {/* View: Thumbnails */}
+          {activeTab === 'history' && <HistoryTab />}
+
           {activeTab === 'thumbnails' && (
             <ThumbnailStudio geminiApiKey={apiKey} uploadPostKey={uploadPostKey} uploadUserId={uploadUserId} managed={isManaged} />
           )}

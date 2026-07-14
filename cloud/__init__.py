@@ -26,13 +26,14 @@ def setup_sync(app):
     from starlette.middleware.sessions import SessionMiddleware
     app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret)
 
-    from . import auth, oauth, billing, social_profiles
+    from . import auth, oauth, billing, social_profiles, videos
     oauth.register()
     billing._init_stripe()
     app.include_router(auth.router)
     app.include_router(oauth.router)
     app.include_router(billing.router)
     app.include_router(social_profiles.router)
+    app.include_router(videos.router)
 
 
 async def setup_async(app):
@@ -40,8 +41,9 @@ async def setup_async(app):
 
     DB engine, orphaned-reservation cleanup and the metering sweeper live here.
     """
-    from . import database, metering
+    from . import database, metering, videos
     await database.init_engine()
     await metering.release_orphaned_reservations()
     metering.start_sweeper()
+    videos.start_sweeper()
     print("☁️  Cloud billing mode ENABLED (DB ready, metering active).")

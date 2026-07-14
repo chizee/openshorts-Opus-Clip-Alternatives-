@@ -289,14 +289,19 @@ async def _upsert_subscription(sub_obj: dict, event_created: datetime):
             if row and row.last_event_at and event_created < row.last_event_at:
                 return
             start, end = _sub_period(sub_obj)
+            now_canceling = bool(sub_obj.get("cancel_at_period_end"))
+            # Detect the moment the user hits "cancel" (False -> True).
+            was_canceling = bool(row.cancel_at_period_end) if row else False
+            just_canceled = now_canceling and not was_canceling
+            end_dt = _ts(end)
             values = dict(
                 stripe_subscription_id=sub_obj["id"],
                 stripe_price_id=price_id,
                 plan=plan, interval=interval, status=sub_obj["status"],
                 minutes_per_period=minutes,
                 current_period_start=_ts(start),
-                current_period_end=_ts(end),
-                cancel_at_period_end=bool(sub_obj.get("cancel_at_period_end")),
+                current_period_end=end_dt,
+                cancel_at_period_end=now_canceling,
                 last_event_at=event_created,
             )
             if row is None:
@@ -304,6 +309,17 @@ async def _upsert_subscription(sub_obj: dict, event_created: datetime):
             else:
                 for k, v in values.items():
                     setattr(row, k, v)
+
+    # Churn alert to the admin the moment a subscription is set to cancel.
+    if just_canceled:
+        from .alerts import send_admin_alert
+        from .config import VIDEO_RETENTION_GRACE_DAYS
+        await send_admin_alert(
+            "🔻 Subscription canceled",
+            f"A {plan} subscriber just canceled.\n"
+            f"Access continues until {end_dt:%Y-%m-%d}; their videos are then kept "
+            f"{VIDEO_RETENTION_GRACE_DAYS} more days before deletion.",
+        )
 
 
 async def _set_subscription_status(sub_obj: dict, status: str, event_created: datetime):

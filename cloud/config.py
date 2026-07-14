@@ -149,6 +149,32 @@ class Settings:
     def openshorts_logo_url(self) -> str:
         return os.environ.get("OPENSHORTS_LOGO_URL", "https://openshorts.app/logo.png")
 
+    # Cloudflare R2 (S3-compatible) — durable video library storage
+    @property
+    def r2_endpoint(self) -> str:
+        return os.environ.get("R2_ENDPOINT", "")
+
+    @property
+    def r2_bucket(self) -> str:
+        return os.environ.get("R2_BUCKET", "")
+
+    @property
+    def r2_access_key_id(self) -> str:
+        return os.environ.get("R2_ACCESS_KEY_ID", "")
+
+    @property
+    def r2_secret_access_key(self) -> str:
+        return os.environ.get("R2_SECRET_ACCESS_KEY", "")
+
+    @property
+    def r2_configured(self) -> bool:
+        return bool(self.r2_endpoint and self.r2_bucket and self.r2_access_key_id
+                    and self.r2_secret_access_key)
+
+
+# Days a user's videos survive after their subscription ends (grace period).
+VIDEO_RETENTION_GRACE_DAYS = 7
+
 
 settings = Settings()
 

@@ -314,12 +314,29 @@ async def run_job_wrapper(job_id):
         # Settle the minute reservation (managed jobs only): commit on success,
         # release otherwise so the minutes go back to the user.
         await _settle_reservation(job_id)
+        # Archive the completed clips to the user's durable R2 library (history).
+        await _archive_managed_job(job_id)
         # Operational alerting for managed jobs (proxy out of credits / failures).
         await _record_job_alert(job_id)
         # Always release semaphore and mark queue task done
         concurrency_semaphore.release()
         job_queue.task_done()
         print(f"✅ Released slot for job: {job_id}")
+
+
+async def _archive_managed_job(job_id):
+    if not BILLING_ENABLED:
+        return
+    job = jobs.get(job_id) or {}
+    if not job.get('user_id') or job.get('status') != 'completed':
+        return
+    clips = (job.get('result') or {}).get('clips') or []
+    if not clips:
+        return
+    try:
+        await cloud.videos.archive_job(job['user_id'], job_id, clips, job['output_dir'])
+    except Exception as e:
+        print(f"⚠️  R2 archive error for {job_id}: {e}")
 
 
 async def _record_job_alert(job_id):
