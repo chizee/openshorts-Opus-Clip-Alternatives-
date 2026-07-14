@@ -83,14 +83,36 @@ class Settings:
         origins = [o.strip() for o in raw.split(",") if o.strip()]
         return origins or [self.frontend_url]
 
-    # Email (Resend)
+    # Email (SMTP — e.g. Namecheap Private Email)
     @property
-    def resend_api_key(self) -> str:
-        return os.environ.get("RESEND_API_KEY", "")
+    def smtp_host(self) -> str:
+        return os.environ.get("SMTP_HOST", "mail.privateemail.com")
+
+    @property
+    def smtp_port(self) -> int:
+        return int(os.environ.get("SMTP_PORT", "465"))
+
+    @property
+    def smtp_user(self) -> str:
+        return os.environ.get("SMTP_USER", "")
+
+    @property
+    def smtp_password(self) -> str:
+        return os.environ.get("SMTP_PASSWORD", "")
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_user and self.smtp_password)
 
     @property
     def email_from(self) -> str:
-        return os.environ.get("EMAIL_FROM", "OpenShorts <login@openshorts.app>")
+        # Namecheap requires the From to be the authenticated mailbox.
+        return os.environ.get("EMAIL_FROM") or (f"OpenShorts <{self.smtp_user}>" if self.smtp_user else "OpenShorts")
+
+    @property
+    def admin_email(self) -> str:
+        # Where operational alerts (proxy out of credits, high failure rate) go.
+        return os.environ.get("ADMIN_EMAIL", "")
 
     # Google OAuth
     @property

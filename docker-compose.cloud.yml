@@ -40,9 +40,10 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-https://openshorts.app}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://openshorts.app}
-      # Email (magic link) — Resend
-      - RESEND_API_KEY=${RESEND_API_KEY}
-      - EMAIL_FROM=${EMAIL_FROM:-OpenShorts <login@openshorts.app>}
+      # Email (magic link + admin alerts) is via SMTP and read from the mounted
+      # .env (SMTP_HOST/PORT/USER/PASSWORD, EMAIL_FROM, ADMIN_EMAIL). It's kept
+      # out of this list on purpose so the SMTP password's $/* aren't mangled by
+      # compose/shell variable substitution.
       # Google OAuth
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}

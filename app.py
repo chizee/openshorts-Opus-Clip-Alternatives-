@@ -42,13 +42,14 @@ BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").lower() in ("1", "true",
 
 if BILLING_ENABLED:
     import cloud
-    from cloud import managed_keys, metering as _metering, config as _cloud_config
+    from cloud import managed_keys, metering as _metering, config as _cloud_config, alerts as _alerts
     from cloud.auth import get_current_user_optional
 else:
     cloud = None
     managed_keys = None
     _metering = None
     _cloud_config = None
+    _alerts = None
 
     async def get_current_user_optional(request: Request):
         # No-op dependency in self-host mode: every request is anonymous / BYOK.
@@ -313,10 +314,26 @@ async def run_job_wrapper(job_id):
         # Settle the minute reservation (managed jobs only): commit on success,
         # release otherwise so the minutes go back to the user.
         await _settle_reservation(job_id)
+        # Operational alerting for managed jobs (proxy out of credits / failures).
+        await _record_job_alert(job_id)
         # Always release semaphore and mark queue task done
         concurrency_semaphore.release()
         job_queue.task_done()
         print(f"✅ Released slot for job: {job_id}")
+
+
+async def _record_job_alert(job_id):
+    if not BILLING_ENABLED:
+        return
+    job = jobs.get(job_id) or {}
+    if not job.get('user_id'):
+        return  # only track managed jobs
+    ok = job.get('status') == 'completed'
+    err = "" if ok else " ".join(job.get('logs', [])[-10:])
+    try:
+        await _alerts.record_job_outcome(ok, err)
+    except Exception as e:
+        print(f"⚠️  Alert recording error for {job_id}: {e}")
 
 
 async def _settle_reservation(job_id):

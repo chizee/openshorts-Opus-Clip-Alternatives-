@@ -73,28 +73,29 @@ def probe_url_minutes(url: str) -> float:
     """
     import yt_dlp
     bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
-    if bgutil:
-        extractor_args = {"youtubepot-bgutilhttp": {"base_url": [bgutil]}}
-    else:
-        extractor_args = {
-            "youtube": {
-                "player_client": ["tv_embed", "android", "mweb", "web"],
-                "player_skip": ["webpage", "configs"],
-            }
-        }
-    opts = {
-        "skip_download": True, "quiet": True, "no_warnings": True,
-        "extractor_args": extractor_args,
-    }
     proxy = os.environ.get("PROXY_URL", "").strip()
-    if proxy:
-        opts["proxy"] = proxy
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    duration = info.get("duration")
-    if not duration:
-        raise ValueError("Could not determine video duration")
-    return float(duration) / 60.0
+    conservative = {"youtube": {"player_client": ["tv_embed", "android", "mweb", "web"],
+                                "player_skip": ["webpage", "configs"]}}
+    # Try the bgutil/HD extractor first, then the conservative one — mirrors the
+    # download's HD→fallback logic so the probe never fails alone.
+    strategies = ([{"youtubepot-bgutilhttp": {"base_url": [bgutil]}}] if bgutil else []) + [conservative]
+
+    last_err = None
+    for extractor_args in strategies:
+        opts = {"skip_download": True, "quiet": True, "no_warnings": True,
+                "extractor_args": extractor_args}
+        if proxy:
+            opts["proxy"] = proxy
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            duration = info.get("duration")
+            if duration:
+                return float(duration) / 60.0
+            last_err = ValueError("no duration in metadata")
+        except Exception as e:
+            last_err = e
+    raise ValueError(f"Could not determine video duration ({last_err})")
 
 
 # --------------------------------------------------------------------------- #

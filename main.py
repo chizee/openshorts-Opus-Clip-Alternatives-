@@ -481,124 +481,99 @@ def download_youtube_video(url, output_dir="."):
     if _proxy:
         print("🌐 Using residential proxy for download.")
 
-    # YouTube client strategy:
-    # - Hosted (BGUTIL_BASE_URL set): use yt-dlp's default clients + the bgutil
-    #   PO-token provider → unlocks 720p/1080p (needs the bgutil sidecar + a Deno
-    #   JS runtime + a recent yt-dlp, all baked into the cloud image).
-    # - Self-host (no bgutil): fall back to the conservative tv_embed/android
-    #   clients that work without a PO-token provider (caps around 360p, but no
-    #   extra infra required).
+    # Two download strategies, tried in order so a break in the HD path degrades
+    # gracefully instead of failing the whole job:
+    #  1) HD — yt-dlp default clients + the bgutil PO-token provider
+    #     (BGUTIL_BASE_URL, needs the sidecar + Deno + recent yt-dlp) → 720p/1080p.
+    #  2) Fallback — conservative tv_embed/android clients, no PO provider (~360p),
+    #     which is also the ONLY strategy for self-host (no bgutil configured).
     _bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
-    if _bgutil:
-        _extractor_args = {'youtubepot-bgutilhttp': {'base_url': [_bgutil]}}
+    hd_args = {'youtubepot-bgutilhttp': {'base_url': [_bgutil]}} if _bgutil else None
+    fallback_args = {
+        'youtube': {
+            'player_client': ['tv_embed', 'android', 'mweb', 'web'],
+            'player_skip': ['webpage', 'configs'],
+        }
+    }
+
+    # Cap at 720p when using a paid proxy (bandwidth cost); direct keeps best.
+    if _proxy:
+        hd_fmt = ('bestvideo[vcodec^=avc1][height<=720][ext=mp4]+bestaudio[ext=m4a]/'
+                  'bestvideo[vcodec^=avc1][height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best')
     else:
-        _extractor_args = {
-            'youtube': {
-                'player_client': ['tv_embed', 'android', 'mweb', 'web'],
-                'player_skip': ['webpage', 'configs'],
-            }
+        hd_fmt = 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4]/best'
+    fallback_fmt = 'best[ext=mp4]/best'
+
+    def _base_opts(extractor_args):
+        return {
+            'quiet': False, 'verbose': True, 'no_warnings': False,
+            'cookiefile': cookies_path if cookies_path else None,
+            'proxy': _proxy, 'socket_timeout': 30, 'retries': 10, 'fragment_retries': 10,
+            'nocheckcertificate': True, 'cachedir': False,
+            'extractor_args': extractor_args,
+            'http_headers': {
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ),
+            },
         }
 
-    _COMMON_YDL_OPTS = {
-        'quiet': False,
-        'verbose': True,
-        'no_warnings': False,
-        'cookiefile': cookies_path if cookies_path else None,
-        'proxy': _proxy,
-        'socket_timeout': 30,
-        'retries': 10,
-        'fragment_retries': 10,
-        'nocheckcertificate': True,
-        'cachedir': False,
-        'extractor_args': _extractor_args,
-        'http_headers': {
-            'User-Agent': (
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/120.0.0.0 Safari/537.36'
-            ),
-        },
-    }
-
-    with yt_dlp.YoutubeDL(_COMMON_YDL_OPTS) as ydl:
-        try:
+    def _attempt(extractor_args, fmt):
+        with yt_dlp.YoutubeDL(_base_opts(extractor_args)) as ydl:
             info = ydl.extract_info(url, download=False)
-            video_title = info.get('title', 'youtube_video')
-            sanitized_title = sanitize_filename(video_title)
+        sanitized = sanitize_filename(info.get('title', 'youtube_video'))
+        expected = os.path.join(output_dir, f'{sanitized}.mp4')
+        if os.path.exists(expected):
+            os.remove(expected)
+        dl_opts = {
+            **_base_opts(extractor_args),
+            'format': fmt,
+            'outtmpl': os.path.join(output_dir, f'{sanitized}.%(ext)s'),
+            'merge_output_format': 'mp4', 'overwrites': True,
+        }
+        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+            ydl.download([url])
+        return sanitized
+
+    attempts = ([('HD', hd_args, hd_fmt)] if hd_args else []) + [('fallback', fallback_args, fallback_fmt)]
+
+    sanitized_title = None
+    last_err = None
+    for label, ea, fmt in attempts:
+        try:
+            print(f"📥 Download attempt: {label}")
+            sanitized_title = _attempt(ea, fmt)
+            print(f"✅ Download succeeded ({label}).")
+            break
         except Exception as e:
-            # Force print to stderr/stdout immediately so it's captured before crash
-            import sys
-            import traceback
-            
-            # Print minimal error first to ensure something gets out
-            print("🚨 YOUTUBE DOWNLOAD ERROR 🚨", file=sys.stderr)
-            
-            error_msg = f"""
-            
+            last_err = e
+            print(f"⚠️  Download attempt '{label}' failed: {str(e)[:200]}")
+
+    if sanitized_title is None:
+        import sys
+        error_msg = f"""
 ❌ ================================================================= ❌
-❌ FATAL ERROR: YOUTUBE DOWNLOAD FAILED
+❌ FATAL ERROR: YOUTUBE DOWNLOAD FAILED (all strategies)
 ❌ ================================================================= ❌
-            
-REASON: YouTube has blocked the download request (Error 429/Unavailable).
-        This is likely a temporary IP ban on this server.
+REASON: YouTube blocked the request or the download tooling is out of date.
+👇 SOLUTION FOR USER: download the video manually and use the 'Upload Video' tab.
+Technical Details: {str(last_err)}
+"""
+        print(error_msg, file=sys.stdout)
+        print(error_msg, file=sys.stderr)
+        sys.stdout.flush(); sys.stderr.flush()
+        time.sleep(0.5)
+        raise last_err
 
-👇 SOLUTION FOR USER 👇
----------------------------------------------------------------------
-1. Download the video manually to your computer.
-2. Use the 'Upload Video' tab in this app to process it.
----------------------------------------------------------------------
-
-Technical Details: {str(e)}
-            """
-            # Print to both streams to ensure capture
-            print(error_msg, file=sys.stdout)
-            print(error_msg, file=sys.stderr)
-            
-            # Force flush
-            sys.stdout.flush()
-            sys.stderr.flush()
-            
-            # Wait a split second to allow buffer to drain before raising
-            time.sleep(0.5)
-            
-            raise e
-    
-    output_template = os.path.join(output_dir, f'{sanitized_title}.%(ext)s')
-    expected_file = os.path.join(output_dir, f'{sanitized_title}.mp4')
-    if os.path.exists(expected_file):
-        os.remove(expected_file)
-        print(f"🗑️  Removed existing file to re-download with H.264 codec")
-    
-    # When downloading through a paid proxy, cap at 720p to control bandwidth
-    # cost (a 720p source is plenty for 9:16 clips). Direct downloads keep best.
-    if _proxy:
-        _fmt = ('bestvideo[vcodec^=avc1][height<=720][ext=mp4]+bestaudio[ext=m4a]/'
-                'bestvideo[vcodec^=avc1][height<=720]+bestaudio/best[height<=720][ext=mp4]/best[height<=720]/best')
-    else:
-        _fmt = 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4]/best'
-
-    ydl_opts = {
-        **_COMMON_YDL_OPTS,
-        'format': _fmt,
-        'outtmpl': output_template,
-        'merge_output_format': 'mp4',
-        'overwrites': True,
-    }
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    
     downloaded_file = os.path.join(output_dir, f'{sanitized_title}.mp4')
-    
     if not os.path.exists(downloaded_file):
         for f in os.listdir(output_dir):
             if f.startswith(sanitized_title) and f.endswith('.mp4'):
                 downloaded_file = os.path.join(output_dir, f)
                 break
-    
-    step_end_time = time.time()
-    print(f"✅ Video downloaded in {step_end_time - step_start_time:.2f}s: {downloaded_file}")
-    
+
+    print(f"✅ Video downloaded in {time.time() - step_start_time:.2f}s: {downloaded_file}")
     return downloaded_file, sanitized_title
 
 def process_video_to_vertical(input_video, final_output_video):
