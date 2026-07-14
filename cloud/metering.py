@@ -72,14 +72,19 @@ def probe_url_minutes(url: str) -> float:
     bandwidth. Raises ValueError if the duration is unknown (e.g. live streams).
     """
     import yt_dlp
-    opts = {
-        "skip_download": True, "quiet": True, "no_warnings": True,
-        "extractor_args": {
+    bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
+    if bgutil:
+        extractor_args = {"youtubepot-bgutilhttp": {"base_url": [bgutil]}}
+    else:
+        extractor_args = {
             "youtube": {
                 "player_client": ["tv_embed", "android", "mweb", "web"],
                 "player_skip": ["webpage", "configs"],
             }
-        },
+        }
+    opts = {
+        "skip_download": True, "quiet": True, "no_warnings": True,
+        "extractor_args": extractor_args,
     }
     proxy = os.environ.get("PROXY_URL", "").strip()
     if proxy:

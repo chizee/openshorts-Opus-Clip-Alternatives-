@@ -481,9 +481,24 @@ def download_youtube_video(url, output_dir="."):
     if _proxy:
         print("🌐 Using residential proxy for download.")
 
-    # Common yt-dlp options to work around YouTube bot detection.
-    # extractor_args tries multiple player clients in order; tv_embed / android
-    # avoid the OAuth/PO-token checks that block server IPs.
+    # YouTube client strategy:
+    # - Hosted (BGUTIL_BASE_URL set): use yt-dlp's default clients + the bgutil
+    #   PO-token provider → unlocks 720p/1080p (needs the bgutil sidecar + a Deno
+    #   JS runtime + a recent yt-dlp, all baked into the cloud image).
+    # - Self-host (no bgutil): fall back to the conservative tv_embed/android
+    #   clients that work without a PO-token provider (caps around 360p, but no
+    #   extra infra required).
+    _bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
+    if _bgutil:
+        _extractor_args = {'youtubepot-bgutilhttp': {'base_url': [_bgutil]}}
+    else:
+        _extractor_args = {
+            'youtube': {
+                'player_client': ['tv_embed', 'android', 'mweb', 'web'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        }
+
     _COMMON_YDL_OPTS = {
         'quiet': False,
         'verbose': True,
@@ -495,12 +510,7 @@ def download_youtube_video(url, output_dir="."):
         'fragment_retries': 10,
         'nocheckcertificate': True,
         'cachedir': False,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv_embed', 'android', 'mweb', 'web'],
-                'player_skip': ['webpage', 'configs'],
-            }
-        },
+        'extractor_args': _extractor_args,
         'http_headers': {
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '

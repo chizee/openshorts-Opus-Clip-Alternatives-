@@ -35,13 +35,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Deno JS runtime — yt-dlp needs it to solve YouTube's nsig challenge for 720p+
+# (used together with the bgutil PO-token sidecar in cloud mode).
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 # Copy virtual env from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-# Always upgrade yt-dlp to latest (YouTube bot-detection changes frequently)
-RUN pip install --upgrade --no-cache-dir yt-dlp
+# Latest yt-dlp (nightly, YouTube changes constantly) + the bgutil PO-token
+# provider plugin. Together with Deno + the bgutil sidecar this unlocks 720p/1080p.
+RUN pip install --upgrade --pre --no-cache-dir "yt-dlp[default]" bgutil-ytdlp-pot-provider
 
 # Copy application code
 COPY . .
