@@ -1,8 +1,9 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 
-const LAST_UPDATED = '2026-05-06';
+const LAST_UPDATED = '2026-07-15';
 const ISSUES_URL = 'https://github.com/mutonby/openshorts/issues';
+const SUPPORT_EMAIL = 'info@openshorts.app';
 
 function Section({ title, children }) {
     return (
@@ -37,25 +38,79 @@ export default function Legal() {
 
                 <Section title="The short version">
                     <p>
-                        OpenShorts is a free, open-source AI clip generator. There are no accounts, no payments, and we
-                        do not persistently store the videos you upload or the clips we generate. By using the Service
-                        you agree to the points below.
+                        OpenShorts is an AI clip generator. There are two ways to use it:
+                    </p>
+                    <ul className="list-disc pl-6 space-y-1">
+                        <li>
+                            <strong className="text-white">Self-hosted (free):</strong> the open-source software, run on
+                            your own machine with your own API keys. No account, no payment, no data held by us.
+                        </li>
+                        <li>
+                            <strong className="text-white">Hosted at openshorts.app (paid):</strong> we run everything for
+                            you. It requires an account and a paid subscription (with a free trial), and we store the
+                            videos you generate while your subscription is active.
+                        </li>
+                    </ul>
+                    <p>By using the hosted Service you agree to the terms below.</p>
+                </Section>
+
+                <Section title="Accounts & sign-in">
+                    <p>
+                        The hosted Service requires an account. You can sign in with a magic link sent to your email or
+                        with Google. We store your email address to operate your account and authenticate you. You are
+                        responsible for keeping access to your inbox / Google account secure.
                     </p>
                 </Section>
 
-                <Section title="Service is provided as-is">
+                <Section title="Free trial, plans & billing">
                     <p>
-                        The Service is offered for free, on a best-effort basis, with no warranties of any kind and no
-                        guarantee of uptime, accuracy, or fitness for any particular purpose. To the maximum extent
-                        permitted by law, we are not liable for any damages arising from your use of the Service.
+                        Paid plans are <strong className="text-white">Starter ($12/mo · 100 min)</strong>,{' '}
+                        <strong className="text-white">Creator ($29/mo · 300 min)</strong> and{' '}
+                        <strong className="text-white">Pro ($59/mo · 750 min)</strong>, each also available annually (two
+                        months free). "Minutes" are minutes of input video processed per billing period; additional
+                        minutes can be bought as one-off top-ups.
+                    </p>
+                    <p>
+                        <strong className="text-white">Free trial:</strong> new subscriptions start with a{' '}
+                        <strong className="text-white">3-day free trial</strong>. You provide a payment method up front
+                        but are <strong className="text-white">not charged during the trial</strong>. If you do not
+                        cancel before the trial ends, your subscription automatically begins and your payment method is
+                        charged the plan price. You can cancel at any time from your account.
+                    </p>
+                    <p>
+                        <strong className="text-white">Auto-renewal:</strong> subscriptions renew automatically each
+                        period (monthly or yearly) at the then-current price until you cancel. We'll email a reminder
+                        before the trial converts to a paid subscription.
+                    </p>
+                    <p>
+                        Payments are processed by <strong className="text-white">Stripe</strong>. We never see or store
+                        your full card details. Prices are in USD and exclude any applicable taxes/VAT, which are added
+                        at checkout where required.
+                    </p>
+                </Section>
+
+                <Section title="Cancellation & refunds">
+                    <p>
+                        You can cancel anytime from your account (or Stripe's billing portal). On cancellation your plan
+                        stays active until the end of the current paid period; we do not charge you again after that.
+                    </p>
+                    <p>
+                        Except where required by law, payments are <strong className="text-white">non-refundable</strong>{' '}
+                        and we do not prorate partial periods. To avoid being charged for a period you don't want, cancel
+                        before it renews (and, for the trial, before it ends).
+                    </p>
+                    <p>
+                        <strong className="text-white">EU/EEA consumers:</strong> the Service is digital content/services
+                        supplied immediately. By starting to use it (including during the trial) you request immediate
+                        performance and acknowledge that you lose the 14-day right of withdrawal once performance has
+                        begun, to the extent permitted by law.
                     </p>
                 </Section>
 
                 <Section title="You are responsible for what you upload">
                     <p>
-                        Before processing a video, you must affirmatively confirm — via the checkbox in the upload
-                        interface — that you own the content or have the rights to process it. By doing so you
-                        represent and warrant that:
+                        Before processing a video you must confirm — via the checkbox in the upload interface — that you
+                        own the content or have the rights to process it. By doing so you represent and warrant that:
                     </p>
                     <ul className="list-disc pl-6 space-y-1">
                         <li>You own all rights to the content, or have a valid license or permission to process it;</li>
@@ -63,56 +118,74 @@ export default function Legal() {
                         <li>The content is not unlawful, defamatory, or otherwise prohibited.</li>
                     </ul>
                     <p>
-                        If you submit content you do not have rights to, that is your responsibility, not ours. You
-                        agree to indemnify OpenShorts and its contributors against any third-party claim arising from
-                        content you submitted.
+                        If you submit content you do not have rights to, that is your responsibility. You agree to
+                        indemnify OpenShorts and its contributors against any third-party claim arising from content you
+                        submitted. We may suspend or terminate accounts that abuse the Service or infringe others' rights.
                     </p>
                 </Section>
 
-                <Section title="What we keep, and for how long">
+                <Section title="What we store, and for how long">
                     <ul className="list-disc pl-6 space-y-1">
                         <li>
-                            <strong className="text-white">Uploaded videos and generated clips:</strong> deleted with
-                            their job, typically within 1 hour. Not backed up off-server in our hosted deployment.
+                            <strong className="text-white">Account data:</strong> your email address and your subscription
+                            status and usage (minutes used). Kept while your account exists.
                         </li>
                         <li>
-                            <strong className="text-white">Attestation record (IP, user-agent, timestamp, source):</strong>{' '}
-                            kept in memory with the job and discarded when the job is purged (≈1 hour). Used only to
-                            evidence the ownership confirmation in case of a takedown or dispute.
+                            <strong className="text-white">Generated videos:</strong> the clips you create are stored on
+                            Cloudflare R2 and available in your library <strong className="text-white">while your
+                            subscription is active, plus 7 days after it ends</strong>, then permanently deleted.
                         </li>
                         <li>
-                            <strong className="text-white">Standard server access logs:</strong> retained up to 30 days
-                            for debugging and abuse prevention.
+                            <strong className="text-white">Uploaded/source files &amp; working data:</strong> deleted from
+                            our processing servers shortly after the job finishes (typically within 1 hour).
                         </li>
                         <li>
-                            <strong className="text-white">API keys (Gemini, ElevenLabs, Upload-Post):</strong> stored
-                            encrypted in your browser's <code className="text-zinc-200">localStorage</code>. They are
-                            sent as request headers when a feature needs them, used to call the relevant third party,
-                            and never written to our database or disk.
+                            <strong className="text-white">Billing data:</strong> handled by Stripe; we keep a reference
+                            to your Stripe customer/subscription, not your card.
+                        </li>
+                        <li>
+                            <strong className="text-white">Optional add-on keys (ElevenLabs, fal.ai):</strong> for BYOK
+                            features, stored encrypted in your browser and sent as request headers only when needed —
+                            never written to our database.
+                        </li>
+                        <li>
+                            <strong className="text-white">Server access logs:</strong> retained up to 30 days for
+                            debugging and abuse prevention.
                         </li>
                     </ul>
                     <p>We do not sell, rent, or share your data with third parties for advertising or any unrelated purpose.</p>
                 </Section>
 
-                <Section title="Third-party APIs">
+                <Section title="Subprocessors">
+                    <p>To provide the hosted Service we share the minimum necessary data with:</p>
+                    <ul className="list-disc pl-6 space-y-1">
+                        <li><strong className="text-white">Stripe</strong> — payments &amp; subscriptions.</li>
+                        <li><strong className="text-white">Cloudflare (R2)</strong> — storage of your generated videos.</li>
+                        <li><strong className="text-white">Google (Gemini)</strong> — AI analysis, titles and thumbnails.</li>
+                        <li><strong className="text-white">Upload-Post</strong> — publishing to TikTok, Instagram &amp; YouTube (when you connect them).</li>
+                        <li><strong className="text-white">A residential-proxy provider</strong> — retrieving videos you submit by link.</li>
+                        <li><strong className="text-white">Namecheap Private Email</strong> — transactional email (sign-in links, notices).</li>
+                    </ul>
+                    <p>Each has its own terms and privacy policy, which apply in addition to this notice.</p>
+                </Section>
+
+                <Section title="Service is provided as-is">
                     <p>
-                        When you use a feature that requires it, OpenShorts forwards relevant data to the third-party
-                        API for which you provided a key — Google Gemini (AI analysis), ElevenLabs (optional dubbing),
-                        Upload-Post (optional social posting). Those services have their own terms and privacy policies
-                        which apply in addition to this notice.
+                        The Service is provided on a best-effort basis with no warranties of any kind and no guarantee of
+                        uptime, accuracy, or fitness for a particular purpose. To the maximum extent permitted by law, our
+                        aggregate liability is limited to the amount you paid us in the 3 months before the claim, and we
+                        are not liable for indirect or consequential damages. Some third-party sources (e.g. video
+                        platforms) may change how they work and temporarily affect ingestion.
                     </p>
                 </Section>
 
                 <Section title="Your rights (EU / EEA / UK)">
                     <p>
-                        Under the GDPR / UK GDPR you have the right to access, rectify, erase, restrict, object to, or
-                        port your personal data. Because we do not hold accounts and job data is purged within an hour,
-                        most requests are auto-satisfied by the retention schedule. For anything else, file a request
-                        via{' '}
-                        <a className="text-primary underline" href={ISSUES_URL} target="_blank" rel="noopener noreferrer">
-                            GitHub Issues
-                        </a>
-                        . You may also lodge a complaint with your local supervisory authority (in Spain: AEPD,{' '}
+                        Under the GDPR / UK GDPR you may access, rectify, erase, restrict, object to, or port your
+                        personal data. You can delete your account and its data — including your video library — by
+                        emailing{' '}
+                        <a className="text-primary underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. You may
+                        also lodge a complaint with your local supervisory authority (in Spain: AEPD,{' '}
                         <a className="text-primary underline" href="https://www.aepd.es" target="_blank" rel="noopener noreferrer">
                             aepd.es
                         </a>
@@ -122,36 +195,34 @@ export default function Legal() {
 
                 <Section title="Copyright takedowns">
                     <p>
-                        If you believe content processed through the Service infringes your copyright, open an issue at{' '}
-                        <a className="text-primary underline" href={ISSUES_URL} target="_blank" rel="noopener noreferrer">
-                            {ISSUES_URL}
-                        </a>{' '}
-                        with: identification of the work, identification of the allegedly infringing material (job ID,
-                        URL, or sufficient detail to locate it), your contact information, and a statement that you are
-                        authorized to act on behalf of the rights holder. Note that uploaded content is typically
-                        deleted within 1 hour, so most takedowns are auto-resolved by retention.
+                        If you believe content processed through the Service infringes your copyright, email{' '}
+                        <a className="text-primary underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with:
+                        identification of the work, identification of the allegedly infringing material (enough detail to
+                        locate it), your contact information, and a statement that you are authorized to act for the
+                        rights holder.
                     </p>
                 </Section>
 
                 <Section title="Self-hosted instances">
                     <p>
-                        OpenShorts is open source and may be self-hosted. This notice applies only to the hosted
-                        version we operate. Self-hosted instances are operated by their respective administrators, and
-                        their data handling, retention, and policies are their responsibility, not ours.
+                        OpenShorts is open source and may be self-hosted. This notice applies to the hosted version we
+                        operate at openshorts.app. Self-hosted instances are run by their administrators, whose data
+                        handling and policies are their own responsibility, not ours.
                     </p>
                 </Section>
 
                 <Section title="Changes & contact">
                     <p>
-                        We may update this notice from time to time; the "Last updated" date above reflects the most
-                        recent revision. Continued use after a change constitutes acceptance. For any other question,
-                        please use{' '}
+                        We may update this notice; the "Last updated" date reflects the latest revision. For material
+                        changes affecting paid subscribers we'll give reasonable notice. Continued use after a change
+                        constitutes acceptance. Questions:{' '}
+                        <a className="text-primary underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> or{' '}
                         <a className="text-primary underline" href={ISSUES_URL} target="_blank" rel="noopener noreferrer">
                             GitHub Issues
                         </a>
                         .
                     </p>
-                    <p>This notice is governed by the laws of Spain.</p>
+                    <p>These terms are governed by the laws of Spain.</p>
                 </Section>
             </main>
         </div>
