@@ -353,7 +353,8 @@ function App() {
   const handleConnectSocials = async () => {
     try {
       const { access_url } = await apiJson('/api/social/connect', { method: 'POST' });
-      if (access_url) window.open(access_url, '_blank', 'noopener');
+      // Same tab so the connect page's redirectUrl brings the user back into the app.
+      if (access_url) window.location.href = access_url;
     } catch (e) {
       alert('Could not open the connection page. Please try again.');
     }

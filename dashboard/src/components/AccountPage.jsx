@@ -24,6 +24,15 @@ export default function AccountPage() {
       if ((data && data.plan) || tries > 15) {
         clearInterval(t);
         setActivating(false);
+        // First time a plan activates, take the user straight to connect their
+        // socials. Guard with a flag so top-up checkouts don't re-trigger it.
+        if (data && data.plan && !localStorage.getItem('os_socials_prompted')) {
+          localStorage.setItem('os_socials_prompted', '1');
+          try {
+            const { access_url } = await apiJson('/api/social/connect', { method: 'POST' });
+            if (access_url) { window.location.href = access_url; return; }
+          } catch (_) { /* fall through to the account page */ }
+        }
         window.location.hash = '#/account';
       }
     }, 2000);

@@ -80,6 +80,7 @@ async def get_connect_url(username: str) -> str:
         "redirectUrl": f"{settings.frontend_url}/#/account?connected=1",
         "redirectButtonText": "Back to OpenShorts",
         "platforms": CONNECT_PLATFORMS,
+        "showCalendar": False,  # hide the scheduling calendar in the connect page
     }
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(
