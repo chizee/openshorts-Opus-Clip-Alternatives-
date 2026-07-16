@@ -19,7 +19,6 @@ import HistoryTab from './components/HistoryTab';
 import ProfileMenu from './components/ProfileMenu';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError } from './lib/api';
-import { getApiUrl } from './config';
 
 // Enhanced "Encryption" using XOR + Base64 with a Salt
 // This is better than plain Base64 but still client-side.
@@ -278,10 +277,10 @@ function App() {
   }, [falKey]);
 
   useEffect(() => {
-    if (uploadPostKey && userProfiles.length === 0) {
-      fetchUserProfiles();
+    if ((uploadPostKey || isManaged) && userProfiles.length === 0) {
+      fetchUserProfiles({ silent: true });
     }
-  }, [uploadPostKey]);
+  }, [uploadPostKey, isManaged]);
 
   // For managed users, fetch the durable R2 URLs of the current job's clips so the
   // preview can fall back to them when the local files have been cleaned up.
@@ -335,11 +334,13 @@ function App() {
   }, [status, jobId]);
 
 
-  const fetchUserProfiles = async () => {
-    if (!uploadPostKey) return;
+  // silent: background auto-fetch — never alert(), just log. Managed users need
+  // no local key (the server resolves its own); BYOK sends the header.
+  const fetchUserProfiles = async ({ silent = false } = {}) => {
+    if (!uploadPostKey && !isManaged) return;
     try {
-      const res = await fetch(getApiUrl('/api/social/user'), {
-        headers: { 'X-Upload-Post-Key': uploadPostKey }
+      const res = await apiFetch('/api/social/user', {
+        headers: uploadPostKey ? { 'X-Upload-Post-Key': uploadPostKey } : {}
       });
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
@@ -349,11 +350,11 @@ function App() {
         if (!uploadUserId) {
           setUploadUserId(data.profiles[0].username);
         }
-      } else {
+      } else if (!silent) {
         alert("No profiles found for this API Key.");
       }
     } catch (e) {
-      alert("Error fetching User Profiles. Please check key.");
+      if (!silent) alert("Error fetching User Profiles. Please check key.");
       console.error(e);
     }
   };
