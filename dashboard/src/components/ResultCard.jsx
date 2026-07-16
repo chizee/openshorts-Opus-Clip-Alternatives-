@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Share2, Instagram, Youtube, Video, CheckCircle, AlertCircle, X, Loader2, Copy, Wand2, Type, Calendar, Clock, Languages } from 'lucide-react';
 import { getApiUrl } from '../config';
+import { apiFetch } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
 import HookModal from './HookModal';
 import TranslateModal from './TranslateModal';
@@ -165,7 +166,7 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
             }
 
             // Fallback: legacy FFmpeg
-            const res = await fetch(getApiUrl('/api/subtitle'), {
+            const res = await apiFetch('/api/subtitle', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -224,7 +225,7 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
                 ? { text: hookData, position: 'top', size: 'M' }
                 : hookData;
 
-            const res = await fetch(getApiUrl('/api/hook'), {
+            const res = await apiFetch('/api/hook', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

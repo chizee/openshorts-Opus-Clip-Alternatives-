@@ -72,13 +72,24 @@ def probe_url_minutes(url: str) -> float:
     bandwidth. Raises ValueError if the duration is unknown (e.g. live streams).
     """
     import yt_dlp
-    bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
+    # SSRF guard: reject non-http(s) / private / metadata hosts before probing.
+    from security_utils import assert_public_url
+    assert_public_url(url)
+
+    bgutil_http = os.environ.get("BGUTIL_BASE_URL", "").strip()
+    bgutil_script = os.environ.get("BGUTIL_SCRIPT_PATH", "").strip()
     proxy = os.environ.get("PROXY_URL", "").strip()
     conservative = {"youtube": {"player_client": ["tv_embed", "android", "mweb", "web"],
                                 "player_skip": ["webpage", "configs"]}}
-    # Try the bgutil/HD extractor first, then the conservative one — mirrors the
-    # download's HD→fallback logic so the probe never fails alone.
-    strategies = ([{"youtubepot-bgutilhttp": {"base_url": [bgutil]}}] if bgutil else []) + [conservative]
+    # Try the bgutil/HD extractor first (http or baked-in script), then the
+    # conservative one — mirrors the download's HD→fallback logic.
+    if bgutil_http:
+        hd = [{"youtubepot-bgutilhttp": {"base_url": [bgutil_http]}}]
+    elif bgutil_script:
+        hd = [{"youtubepot-bgutilscript": {"script_path": [bgutil_script]}}]
+    else:
+        hd = []
+    strategies = hd + [conservative]
 
     last_err = None
     for extractor_args in strategies:

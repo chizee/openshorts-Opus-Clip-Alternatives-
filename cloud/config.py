@@ -37,6 +37,12 @@ TRIAL_DAYS = 3
 # roughly matching its cost to the per-minute economics. Text (titles/desc) is free.
 THUMBNAIL_MINUTES = 3
 
+# Other managed Gemini calls that upload a video for context (AI effect/filter
+# generation, thumbnail analysis, SaaS-shorts analysis). Cheaper than image gen
+# but not free — meter a small fixed cost so an entitled user can't loop them to
+# burn the operator's managed Gemini budget. Pure-text calls (titles/desc) stay free.
+MANAGED_ANALYSIS_MINUTES = 1
+
 # Stripe prices are resolved at runtime by these stable lookup_keys, so no price
 # IDs need to be copied into env vars (they differ between test and live anyway).
 SUBSCRIPTION_LOOKUP_KEYS = [

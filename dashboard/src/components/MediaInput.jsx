@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Youtube, Upload, FileVideo, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link2, Upload, FileVideo, X, Info } from 'lucide-react';
 import { getApiUrl } from '../config';
+
+const SUPPORTED_PLATFORMS = [
+    'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch',
+    'Facebook', 'Instagram', 'Dailymotion', 'Reddit', 'Streamable',
+];
 
 export default function MediaInput({ onProcess, isProcessing }) {
     const [youtubeUrlEnabled, setYoutubeUrlEnabled] = useState(true);
@@ -8,6 +13,18 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const [url, setUrl] = useState('');
     const [file, setFile] = useState(null);
     const [acknowledged, setAcknowledged] = useState(false);
+    const [showInfo, setShowInfo] = useState(false);
+    const infoRef = useRef(null);
+
+    // Close the compatibility popover on any outside click.
+    useEffect(() => {
+        if (!showInfo) return;
+        const onClick = (e) => {
+            if (infoRef.current && !infoRef.current.contains(e.target)) setShowInfo(false);
+        };
+        document.addEventListener('mousedown', onClick);
+        return () => document.removeEventListener('mousedown', onClick);
+    }, [showInfo]);
 
     useEffect(() => {
         fetch(getApiUrl('/api/config'))
@@ -50,8 +67,8 @@ export default function MediaInput({ onProcess, isProcessing }) {
                             : 'text-zinc-400 hover:text-white'
                             }`}
                     >
-                        <Youtube size={18} />
-                        YouTube URL
+                        <Link2 size={18} />
+                        Video URL
                     </button>
                 )}
                 <button
@@ -69,14 +86,41 @@ export default function MediaInput({ onProcess, isProcessing }) {
             <form onSubmit={handleSubmit}>
                 {mode === 'url' ? (
                     <div className="space-y-4">
-                        <input
-                            type="url"
-                            value={url}
-                            onChange={(e) => setUrl(e.target.value)}
-                            placeholder="https://www.youtube.com/watch?v=..."
-                            className="input-field"
-                            required
-                        />
+                        <div className="relative">
+                            <input
+                                type="url"
+                                value={url}
+                                onChange={(e) => setUrl(e.target.value)}
+                                placeholder="https://... paste a video link"
+                                className="input-field pr-11"
+                                required
+                            />
+                            <div className="absolute inset-y-0 right-2 flex items-center" ref={infoRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowInfo((v) => !v)}
+                                    aria-label="Supported platforms"
+                                    className="p-1.5 text-zinc-500 hover:text-primary transition-colors"
+                                >
+                                    <Info size={18} />
+                                </button>
+                                {showInfo && (
+                                    <div className="absolute right-0 top-full mt-2 w-64 z-20 bg-surface border border-white/10 rounded-xl shadow-xl p-4 text-left animate-[fadeIn_0.15s_ease-out]">
+                                        <p className="text-xs font-semibold text-white mb-2">Paste a link from</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {SUPPORTED_PLATFORMS.map((p) => (
+                                                <span key={p} className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-zinc-300 border border-white/5">
+                                                    {p}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed">
+                                            …and 1,000+ more sites. If a link has a public video, we can usually fetch it.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 ) : (
                     <div

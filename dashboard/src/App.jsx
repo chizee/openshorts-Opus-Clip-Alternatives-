@@ -15,6 +15,7 @@ import LoginModal from './components/LoginModal';
 import TrialGate from './components/TrialGate';
 import AdvancedBanner from './components/AdvancedBanner';
 import HistoryTab from './components/HistoryTab';
+import ProfileMenu from './components/ProfileMenu';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError } from './lib/api';
 import { getApiUrl } from './config';
@@ -573,6 +574,7 @@ function App() {
                 Sign in
               </button>
             )}
+            {billingEnabled && isSignedIn && <ProfileMenu />}
 
             {keysMissing && (
               <button

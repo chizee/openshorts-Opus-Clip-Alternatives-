@@ -120,8 +120,13 @@ async def reserve_process_minutes(request, url, input_path, job_id):
     For a managed (entitled, no BYOK header) request this probes the input
     duration, enforces the per-user concurrent-job limit, and reserves minutes —
     raising 402 (quota) or 429 (too many jobs) as needed.
+
+    NOTE: in cloud mode ``resolve_gemini`` ignores ``X-Gemini-Key`` (paid-only,
+    no BYOK), so we must NOT skip metering just because that header is present —
+    otherwise a client could send a dummy header and run unlimited managed jobs
+    on the operator's key for free. Only skip metering when billing is off.
     """
-    if not BILLING_ENABLED or request.headers.get("X-Gemini-Key"):
+    if not BILLING_ENABLED:
         return None, 2, None
     user = await _user_from_request(request)
     if not managed_keys.has_active_entitlement(user):
@@ -179,6 +184,23 @@ async def reserve_managed_action(request, minutes, job_id, job_type):
             "minutes_required": e.required,
             "minutes_remaining": e.remaining,
         })
+
+
+async def require_managed_entitlement(request):
+    """Gate a managed compute endpoint that doesn't resolve a Gemini key itself.
+
+    Some endpoints (subtitle/hook FFmpeg re-encodes, render proxy, the thumbnail
+    upload that kicks off a YouTube download + Whisper) do expensive server work
+    without ever calling ``resolve_gemini``, so nothing was stopping an anonymous
+    or non-entitled caller from driving unbounded compute in cloud mode. In cloud
+    mode this rejects them with 402; it's a no-op for self-host (BILLING off).
+    """
+    if not BILLING_ENABLED:
+        return None
+    user = await _user_from_request(request)
+    if not managed_keys.has_active_entitlement(user):
+        raise gemini_missing_error()
+    return user
 
 # Application State
 # PriorityQueue holds (priority, seq, job_id). Lower priority dispatches first:
@@ -401,6 +423,20 @@ app.mount("/videos", StaticFiles(directory=OUTPUT_DIR), name="videos")
 THUMBNAILS_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 app.mount("/thumbnails", StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
+
+
+def _safe_under(base_dir: str, user_rel_path: str) -> Optional[str]:
+    """Resolve ``user_rel_path`` under ``base_dir`` and reject path traversal.
+
+    Returns the absolute path only if it stays inside ``base_dir`` (after
+    following ``..``); otherwise None. Used to sanitize client-supplied file
+    references so ``../../.env`` can't escape the output directories.
+    """
+    base = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(base, user_rel_path))
+    if target == base or target.startswith(base + os.sep):
+        return target
+    return None
 
 class ProcessRequest(BaseModel):
     url: str
@@ -674,11 +710,17 @@ async def edit_clip(
 
     if req.job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     job = jobs[req.job_id]
     if 'result' not in job or 'clips' not in job['result']:
         raise HTTPException(status_code=400, detail="Job result not available")
-        
+
+    # Meter the managed Gemini call so it can't be looped for free. Skip when the
+    # caller supplied their own key (BYOK body) or self-host (reserve is a no-op).
+    edit_minutes = _cloud_config.MANAGED_ANALYSIS_MINUTES if BILLING_ENABLED else 0
+    reservation_id = None if req.api_key else await reserve_managed_action(
+        request, edit_minutes, req.job_id, "edit")
+
     try:
         # Resolve Input Path: Prefer explict input_filename from frontend (chaining edits)
         if req.input_filename:
@@ -769,18 +811,22 @@ async def edit_clip(
         # Updating job result allows persistence if page refreshes.
         
         new_video_url = f"/videos/{req.job_id}/{edited_filename}"
-        
+
         # Start a new "edited" clip entry or just update the current one?
         # Let's update the current one's video_url but keep backup?
         # Or return the new URL to the frontend to display.
-        
+
+        if reservation_id:
+            await _metering.commit_reservation(reservation_id)
         return {
-            "success": True, 
+            "success": True,
             "new_video_url": new_video_url,
             "edit_plan": plan
         }
 
     except Exception as e:
+        if reservation_id:
+            await _metering.release_reservation(reservation_id)
         print(f"❌ Edit Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -851,6 +897,7 @@ RENDER_SERVICE_URL = os.getenv("RENDER_SERVICE_URL", "http://renderer:3100")
 @app.post("/api/render")
 async def proxy_render(request: Request):
     """Proxy render requests to the Node.js Remotion render service."""
+    await require_managed_entitlement(request)
     import httpx
     body = await request.json()
     try:
@@ -894,6 +941,10 @@ async def generate_effects_config(
     job = jobs[req.job_id]
     if 'result' not in job or 'clips' not in job['result']:
         raise HTTPException(status_code=400, detail="Job result not available")
+
+    # Meter the managed Gemini call (no-op for self-host).
+    fx_minutes = _cloud_config.MANAGED_ANALYSIS_MINUTES if BILLING_ENABLED else 0
+    reservation_id = await reserve_managed_action(request, fx_minutes, req.job_id, "effects")
 
     try:
         # Resolve input path
@@ -973,17 +1024,24 @@ async def generate_effects_config(
         if effects_config is None:
             raise HTTPException(status_code=500, detail="Failed to generate effects config from Gemini")
 
+        if reservation_id:
+            await _metering.commit_reservation(reservation_id)
         return {"effects": effects_config}
 
     except HTTPException:
+        if reservation_id:
+            await _metering.release_reservation(reservation_id)
         raise
     except Exception as e:
+        if reservation_id:
+            await _metering.release_reservation(reservation_id)
         print(f"❌ Effects Generation Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/subtitle")
-async def add_subtitles(req: SubtitleRequest):
+async def add_subtitles(req: SubtitleRequest, request: Request):
+    await require_managed_entitlement(request)
     if req.job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -1104,7 +1162,8 @@ class HookRequest(BaseModel):
     size: Optional[str] = "M" # S, M, L
 
 @app.post("/api/hook")
-async def add_hook(req: HookRequest):
+async def add_hook(req: HookRequest, request: Request):
+    await require_managed_entitlement(request)
     if req.job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -1450,10 +1509,12 @@ async def get_social_user(request: Request):
 
 @app.post("/api/thumbnail/upload")
 async def thumbnail_upload(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
 ):
     """Upload video and start background Whisper transcription immediately."""
+    await require_managed_entitlement(request)
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
 
@@ -1568,6 +1629,10 @@ async def thumbnail_analyze(
                 content = await file.read()
                 buffer.write(content)
 
+    # Meter the managed Gemini analysis (no-op for self-host).
+    analyze_minutes = _cloud_config.MANAGED_ANALYSIS_MINUTES if BILLING_ENABLED else 0
+    reservation_id = await reserve_managed_action(request, analyze_minutes, session_id, "thumbnail_analyze")
+
     try:
         # Run analysis in thread pool (skips Whisper if pre_transcript is available)
         loop = asyncio.get_event_loop()
@@ -1587,6 +1652,8 @@ async def thumbnail_analyze(
             "video_duration": result.get("video_duration", 0)
         })
 
+        if reservation_id:
+            await _metering.commit_reservation(reservation_id)
         return {
             "session_id": session_id,
             "titles": result.get("titles", []),
@@ -1596,6 +1663,8 @@ async def thumbnail_analyze(
         }
 
     except Exception as e:
+        if reservation_id:
+            await _metering.release_reservation(reservation_id)
         print(f"❌ Thumbnail Analyze Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1808,15 +1877,19 @@ async def thumbnail_publish(
     if not video_path or not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Original video file not found")
 
-    # Resolve thumbnail path from URL
+    # Resolve thumbnail path from URL — sanitize against path traversal so a
+    # crafted thumbnail_url (e.g. "thumbnails/../../.env") can't read server
+    # files and exfiltrate them via the Upload-Post multipart body.
     thumb_relative = thumbnail_url.lstrip("/")
     if thumb_relative.startswith("thumbnails/"):
-        thumb_path = os.path.join(OUTPUT_DIR, thumb_relative)
+        thumb_path = _safe_under(OUTPUT_DIR, thumb_relative)
     else:
-        thumb_path = os.path.join(THUMBNAILS_DIR, thumb_relative)
+        thumb_path = _safe_under(THUMBNAILS_DIR, thumb_relative)
 
+    if not thumb_path:
+        raise HTTPException(status_code=400, detail="Invalid thumbnail path")
     if not os.path.exists(thumb_path):
-        raise HTTPException(status_code=404, detail=f"Thumbnail file not found: {thumb_path}")
+        raise HTTPException(status_code=404, detail="Thumbnail file not found")
 
     # Generate a unique ID for this publish job so the frontend can poll
     publish_id = str(uuid.uuid4())
@@ -1951,6 +2024,10 @@ async def saasshorts_analyze(
     if not req.url and not req.description:
         raise HTTPException(status_code=400, detail="Provide a URL or a product description")
 
+    # Meter the managed Gemini research/analysis (no-op for self-host).
+    saas_minutes = _cloud_config.MANAGED_ANALYSIS_MINUTES if BILLING_ENABLED else 0
+    reservation_id = await reserve_managed_action(request, saas_minutes, "saasshorts", "saasshorts_analyze")
+
     try:
         loop = asyncio.get_event_loop()
 
@@ -1982,9 +2059,13 @@ async def saasshorts_analyze(
             }
 
         result = await loop.run_in_executor(None, run_analysis)
+        if reservation_id:
+            await _metering.commit_reservation(reservation_id)
         return result
 
     except Exception as e:
+        if reservation_id:
+            await _metering.release_reservation(reservation_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2400,10 +2481,13 @@ async def saasshorts_generate(
         if req.selected_actor_url.startswith("http"):
             # Download from S3 public URL to job output dir
             import httpx
+            from security_utils import assert_public_url
             try:
+                # SSRF guard: block private / metadata hosts before fetching.
+                safe_actor_url = assert_public_url(req.selected_actor_url)
                 actor_local = os.path.join(job_output_dir, "selected_actor.png")
                 with httpx.Client(timeout=30.0) as client:
-                    resp = client.get(req.selected_actor_url)
+                    resp = client.get(safe_actor_url)
                     if resp.status_code == 200:
                         with open(actor_local, "wb") as f:
                             f.write(resp.content)
@@ -2411,8 +2495,9 @@ async def saasshorts_generate(
             except Exception:
                 pass
         else:
-            src = os.path.join(OUTPUT_DIR, req.selected_actor_url.replace("/videos/", ""))
-            if os.path.exists(src):
+            # Sanitize against traversal — the client controls selected_actor_url.
+            src = _safe_under(OUTPUT_DIR, req.selected_actor_url.replace("/videos/", "").lstrip("/"))
+            if src and os.path.exists(src):
                 selected_actor_path = src
 
     config = {

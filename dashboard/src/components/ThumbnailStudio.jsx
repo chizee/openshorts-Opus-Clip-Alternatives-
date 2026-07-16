@@ -151,7 +151,7 @@ export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUse
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch(getApiUrl('/api/thumbnail/upload'), {
+      const res = await apiFetch('/api/thumbnail/upload', {
         method: 'POST',
         body: formData
       });

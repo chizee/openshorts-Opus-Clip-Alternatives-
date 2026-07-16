@@ -155,6 +155,13 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
     - Outline mode (bg_opacity=0): Text with colored outline/border
     - Box mode (bg_opacity>0): Text with semi-transparent background box
     """
+    # Sanitize the client-supplied font name before it goes into the FFmpeg
+    # force_style string. A quote/comma/colon/backslash would break out of the
+    # quoted style and inject extra libavfilter directives (filtergraph
+    # injection / DoS). Keep only safe font-name characters.
+    import re as _re
+    font_name = _re.sub(r"[^A-Za-z0-9 _\-]", "", str(font_name))[:64].strip() or "Verdana"
+
     # Position mapping
     ass_alignment = 2
     align_lower = str(alignment).lower()

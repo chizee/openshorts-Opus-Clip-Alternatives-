@@ -40,10 +40,19 @@ export function AuthProvider({ children }) {
     const params = new URLSearchParams(query);
 
     setSigningIn(true);
+    let destination = '#app';
     try {
       if (kind === 'callback') {
         const token = params.get('token');
-        if (token) setToken(token);
+        if (token) {
+          setToken(token);
+          // Scrub the token from the URL immediately (replaceState, no new
+          // history entry) so the bearer token isn't left reachable via Back.
+          try {
+            window.history.replaceState(null, document.title,
+              window.location.pathname + window.location.search);
+          } catch (_) { /* ignore */ }
+        }
       } else if (kind === 'verify') {
         const ml = params.get('ml');
         if (ml) {
@@ -55,13 +64,16 @@ export function AuthProvider({ children }) {
           if (data.token) setToken(data.token);
         }
       }
-      await refreshMe();
+      const signedInMe = await refreshMe();
+      // New sign-ups (and anyone without an active plan/trial) go straight to
+      // pricing so they can start their free trial; entitled users land in the app.
+      if (signedInMe?.user && !signedInMe?.entitled) destination = '#/pricing';
     } catch (e) {
       // fall through — user lands signed-out
     } finally {
       setSigningIn(false);
-      // Clear the sensitive hash, land in the app.
-      window.location.hash = '#app';
+      // Clear the sensitive hash, land wherever we resolved above.
+      window.location.hash = destination;
     }
     return true;
   }, [refreshMe]);

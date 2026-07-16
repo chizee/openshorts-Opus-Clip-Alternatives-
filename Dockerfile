@@ -24,7 +24,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install FFmpeg, OpenCV dependencies, and Node.js (for yt-dlp JS challenges)
+# Install FFmpeg, OpenCV deps, Node.js + npm + git (for yt-dlp JS + bgutil build)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -33,11 +33,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     nodejs \
+    npm \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Deno JS runtime — yt-dlp needs it to solve YouTube's nsig challenge for 720p+
-# (used together with the bgutil PO-token sidecar in cloud mode).
+# Deno JS runtime — yt-dlp needs it to solve YouTube's nsig challenge for 720p+.
 COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# bgutil PO-token provider, baked in as a local Node script (script mode) — no
+# separate service/sidecar needed. Unlocks 720p/1080p together with Deno.
+RUN git clone --depth 1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider /opt/bgutil-provider \
+    && cd /opt/bgutil-provider/server \
+    && npm install --no-audit --no-fund \
+    && npx tsc \
+    && npm cache clean --force
+ENV BGUTIL_SCRIPT_PATH=/opt/bgutil-provider/server/build/generate_once.js
 
 # Copy virtual env from builder
 COPY --from=builder /opt/venv /opt/venv
@@ -45,7 +55,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 # Latest yt-dlp (nightly, YouTube changes constantly) + the bgutil PO-token
-# provider plugin. Together with Deno + the bgutil sidecar this unlocks 720p/1080p.
+# provider plugin. Together with Deno + the baked-in bgutil script this unlocks 720p.
 RUN pip install --upgrade --pre --no-cache-dir "yt-dlp[default]" bgutil-ytdlp-pot-provider
 
 # Copy application code

@@ -150,15 +150,25 @@ Be thorough. Use REAL data from your search results, not made-up information."""
 def scrape_website(url: str) -> dict:
     """Scrape a SaaS website to extract key content for analysis."""
     from bs4 import BeautifulSoup
+    from security_utils import assert_public_url
 
+    # SSRF guard: reject non-http(s) / private / metadata hosts, and re-validate
+    # every redirect hop so a public URL can't 30x-bounce us to an internal host.
+    current = assert_public_url(url)
     print(f"[SaaSShorts] 🌐 Scraping {url}...")
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-        response = client.get(url, headers=headers)
+    with httpx.Client(timeout=30.0, follow_redirects=False) as client:
+        response = None
+        for _ in range(5):
+            response = client.get(current, headers=headers)
+            if response.has_redirect_location:
+                current = assert_public_url(str(response.next_request.url))
+                continue
+            break
         response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")

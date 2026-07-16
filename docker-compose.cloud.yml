@@ -10,7 +10,8 @@ services:
     container_name: openshorts-db
     environment:
       - POSTGRES_USER=openshorts
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openshorts}
+      # Fail the deploy loudly if unset, rather than silently using a weak default.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for cloud mode}
       - POSTGRES_DB=openshorts
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -21,22 +22,13 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # PO-token provider — lets yt-dlp fetch YouTube's GVS PO tokens so 720p/1080p
-  # formats are available (with Deno + a recent yt-dlp in the backend image).
-  bgutil:
-    image: brainicism/bgutil-ytdlp-pot-provider
-    container_name: openshorts-bgutil
-    restart: unless-stopped
-
   backend:
     depends_on:
       db:
         condition: service_healthy
-      bgutil:
-        condition: service_started
     environment:
       - BILLING_ENABLED=true
-      - DATABASE_URL=postgresql+asyncpg://openshorts:${POSTGRES_PASSWORD:-openshorts}@db:5432/openshorts
+      - DATABASE_URL=postgresql+asyncpg://openshorts:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for cloud mode}@db:5432/openshorts
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-https://openshorts.app}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://openshorts.app}
@@ -57,8 +49,8 @@ services:
       # Residential proxy for YouTube downloads (avoids datacenter-IP bans).
       # e.g. http://user:pass@gate.dataimpulse.com:823 — leave empty to go direct.
       - PROXY_URL=${PROXY_URL:-}
-      # PO-token provider (bgutil sidecar) → unlocks 720p/1080p downloads.
-      - BGUTIL_BASE_URL=${BGUTIL_BASE_URL:-http://bgutil:4416}
+      # 720p/1080p: the bgutil PO-token provider is baked into the backend image
+      # (script mode, BGUTIL_SCRIPT_PATH). No sidecar or BGUTIL_BASE_URL needed.
 
 volumes:
   pgdata:

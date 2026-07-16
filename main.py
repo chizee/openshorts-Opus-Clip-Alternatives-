@@ -451,6 +451,11 @@ def download_youtube_video(url, output_dir="."):
     Downloads a YouTube video using yt-dlp.
     Returns the path to the downloaded video and the video title.
     """
+    # SSRF guard: block non-http(s) schemes and private/loopback/metadata hosts
+    # before handing the URL to yt-dlp.
+    from security_utils import assert_public_url
+    assert_public_url(url)
+
     print(f"🔍 Debug: yt-dlp version: {yt_dlp.version.__version__}")
     print("📥 Downloading video from YouTube...")
     step_start_time = time.time()
@@ -487,8 +492,16 @@ def download_youtube_video(url, output_dir="."):
     #     (BGUTIL_BASE_URL, needs the sidecar + Deno + recent yt-dlp) → 720p/1080p.
     #  2) Fallback — conservative tv_embed/android clients, no PO provider (~360p),
     #     which is also the ONLY strategy for self-host (no bgutil configured).
-    _bgutil = os.environ.get("BGUTIL_BASE_URL", "").strip()
-    hd_args = {'youtubepot-bgutilhttp': {'base_url': [_bgutil]}} if _bgutil else None
+    # PO-token provider: HTTP mode (external BGUTIL_BASE_URL) or the baked-in
+    # local Node script (BGUTIL_SCRIPT_PATH, set in the image). Either enables HD.
+    _bgutil_http = os.environ.get("BGUTIL_BASE_URL", "").strip()
+    _bgutil_script = os.environ.get("BGUTIL_SCRIPT_PATH", "").strip()
+    if _bgutil_http:
+        hd_args = {'youtubepot-bgutilhttp': {'base_url': [_bgutil_http]}}
+    elif _bgutil_script:
+        hd_args = {'youtubepot-bgutilscript': {'script_path': [_bgutil_script]}}
+    else:
+        hd_args = None
     fallback_args = {
         'youtube': {
             'player_client': ['tv_embed', 'android', 'mweb', 'web'],
