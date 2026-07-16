@@ -76,5 +76,7 @@ RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 # Expose FastAPI port
 EXPOSE 8000
 
-# Run FastAPI app
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run FastAPI app. --proxy-headers + --forwarded-allow-ips trust the reverse
+# proxy's X-Forwarded-Proto so generated URLs (e.g. the OAuth redirect_uri) use
+# https in production instead of the internal http scheme.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
