@@ -8,6 +8,7 @@ GET /api/auth/google/callback  -> exchange code, upsert user, redirect to the
 Registration happens in ``register()`` (called from setup_sync) only when Google
 credentials are configured; otherwise the endpoints 404.
 """
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, HTTPException
@@ -47,15 +48,20 @@ def _now():
 async def google_login(request: Request):
     if oauth is None:
         raise HTTPException(status_code=404, detail="Google login not configured")
-    redirect_uri = str(request.url_for("google_callback"))
-    # Behind a TLS-terminating reverse proxy the app sees the request as http, so
-    # url_for builds an http:// redirect_uri — but Google requires the exact
-    # registered https URI for public hosts (→ redirect_uri_mismatch otherwise).
-    # Force https except on localhost (where there's no proxy and http is used).
-    if redirect_uri.startswith("http://") and not any(
-        h in redirect_uri for h in ("localhost", "127.0.0.1")
-    ):
-        redirect_uri = "https://" + redirect_uri[len("http://"):]
+    # Explicit override for setups where the Host header doesn't match a
+    # Google-registered URI (e.g. local dev through the Vite proxy, where the
+    # backend sees the internal Docker host "backend:8000").
+    redirect_uri = os.environ.get("OAUTH_REDIRECT_URI", "").strip()
+    if not redirect_uri:
+        redirect_uri = str(request.url_for("google_callback"))
+        # Behind a TLS-terminating reverse proxy the app sees the request as http, so
+        # url_for builds an http:// redirect_uri — but Google requires the exact
+        # registered https URI for public hosts (→ redirect_uri_mismatch otherwise).
+        # Force https except on localhost (where there's no proxy and http is used).
+        if redirect_uri.startswith("http://") and not any(
+            h in redirect_uri for h in ("localhost", "127.0.0.1")
+        ):
+            redirect_uri = "https://" + redirect_uri[len("http://"):]
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
