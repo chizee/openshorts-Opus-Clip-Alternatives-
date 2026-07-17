@@ -4,6 +4,10 @@ import time
 import json
 from google import genai
 from google.genai import types
+
+# Text/analysis model (title, description, tags). The image model below stays
+# on gemini-3.1-flash-image-preview — flash-lite cannot generate images.
+TEXT_MODEL = os.environ.get("GEMINI_MODEL_THUMBNAIL") or os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 from PIL import Image
 
 
@@ -65,7 +69,7 @@ OUTPUT JSON:
 
     print("🤖 [Thumbnail] Asking Gemini for title suggestions...")
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=TEXT_MODEL,
         contents=[file_upload, prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json"
@@ -143,7 +147,7 @@ OUTPUT JSON:
 }}"""
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=TEXT_MODEL,
         contents=[prompt],
         config=types.GenerateContentConfig(
             response_mime_type="application/json"
@@ -322,7 +326,7 @@ OUTPUT: Return ONLY the description text (no JSON wrapper, no markdown code bloc
 
     print("🤖 [Thumbnail] Generating YouTube description with chapters...")
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=TEXT_MODEL,
         contents=[prompt],
     )
 

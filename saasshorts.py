@@ -37,7 +37,7 @@ DEFAULT_VOICES = {
 }
 
 
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL_SAAS") or os.environ.get("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 
 
 # ═══════════════════════════════════════════════════════════════════════
