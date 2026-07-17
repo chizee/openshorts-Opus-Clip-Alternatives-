@@ -289,6 +289,54 @@ def _relocate_root_job_artifacts(job_id: str, job_output_dir: str) -> bool:
     except Exception:
         return False
 
+def _recover_jobs_from_disk():
+    """Rebuild completed jobs from OUTPUT_DIR after a restart (issue #46 / #18).
+
+    Jobs live in memory, so a restart used to orphan finished clips that are
+    still on disk: the frontend restores the job_id from localStorage but every
+    endpoint answers 404 "Job not found". Rebuild a minimal completed record
+    for each job directory that has a metadata JSON.
+    """
+    recovered = 0
+    try:
+        entries = os.listdir(OUTPUT_DIR)
+    except FileNotFoundError:
+        return
+    for job_id in entries:
+        job_path = os.path.join(OUTPUT_DIR, job_id)
+        if not os.path.isdir(job_path) or job_id in jobs:
+            continue
+        json_files = glob.glob(os.path.join(job_path, "*_metadata.json"))
+        if not json_files:
+            continue
+        try:
+            with open(json_files[0], 'r') as f:
+                data = json.load(f)
+            base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+            clips = data.get('shorts', [])
+            for i, clip in enumerate(clips):
+                if not clip.get('video_url'):
+                    clip['video_url'] = f"/videos/{job_id}/{base_name}_clip_{i+1}.mp4"
+            owner = None
+            owner_path = os.path.join(job_path, ".owner")
+            if os.path.exists(owner_path):
+                with open(owner_path) as f:
+                    raw = f.read().strip()
+                owner = int(raw) if raw.isdigit() else (raw or None)
+            jobs[job_id] = {
+                'status': 'completed',
+                'logs': ["♻️ Job recovered from disk after server restart."],
+                'output_dir': job_path,
+                'user_id': owner,
+                'result': {'clips': clips, 'cost_analysis': data.get('cost_analysis')},
+            }
+            recovered += 1
+        except Exception as e:
+            print(f"⚠️ Could not recover job {job_id}: {e}")
+    if recovered:
+        print(f"♻️  Recovered {recovered} completed job(s) from disk.")
+
+
 async def cleanup_jobs():
     """Background task to remove old jobs and files."""
     import time
@@ -421,6 +469,8 @@ async def _settle_reservation(job_id):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Rehydrate finished jobs from disk before serving (survives restarts).
+    _recover_jobs_from_disk()
     # Start worker and cleanup
     worker_task = asyncio.create_task(process_queue())
     cleanup_task = asyncio.create_task(cleanup_jobs())
@@ -730,6 +780,16 @@ async def process_endpoint(
         'user_id': user_id,
         'reservation_id': reservation_id,
     }
+
+    # Persist the owner so recovered jobs keep their multi-tenant guard after a
+    # restart (see _recover_jobs_from_disk).
+    if user_id is not None:
+        try:
+            os.makedirs(job_output_dir, exist_ok=True)
+            with open(os.path.join(job_output_dir, ".owner"), "w") as f:
+                f.write(str(user_id))
+        except Exception as e:
+            print(f"⚠️ Could not persist job owner for {job_id}: {e}")
 
     _enqueue_job(job_id, priority)
 
