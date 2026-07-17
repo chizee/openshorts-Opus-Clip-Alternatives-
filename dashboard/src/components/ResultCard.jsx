@@ -105,16 +105,19 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
         try {
             const apiKey = geminiApiKey || localStorage.getItem('gemini_key');
 
-            if (!apiKey) {
+            // Managed (paid) users get the Gemini key resolved server-side;
+            // only BYOK/self-host needs a local key.
+            if (!apiKey && !isManaged) {
                 throw new Error("Gemini API Key is missing. Please set it in Settings.");
             }
+            const geminiHeaders = apiKey ? { 'X-Gemini-Key': apiKey } : {};
 
             // Try Remotion effects endpoint first
             const effectsRes = await apiFetch('/api/effects/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Gemini-Key': apiKey
+                    ...geminiHeaders
                 },
                 body: JSON.stringify({
                     job_id: jobId,
@@ -146,7 +149,7 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Gemini-Key': apiKey
+                    ...geminiHeaders
                 },
                 body: JSON.stringify({
                     job_id: jobId,
