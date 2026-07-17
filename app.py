@@ -31,7 +31,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Default to 1 if not set, but user can set higher for powerful servers
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
 MAX_FILE_SIZE_MB = 2048  # 2GB limit
-JOB_RETENTION_SECONDS = 3600  # 1 hour retention
+JOB_RETENTION_SECONDS = int(os.environ.get("JOB_RETENTION_SECONDS", "3600"))  # job/file retention (issue #46)
 DISABLE_YOUTUBE_URL = os.environ.get("DISABLE_YOUTUBE_URL", "false").lower() in ("1", "true", "yes")
 
 # ---- Cloud billing (paid / managed-keys) integration --------------------------
@@ -1218,6 +1218,7 @@ class HookRequest(BaseModel):
     input_filename: Optional[str] = None
     position: Optional[str] = "top" # top, center, bottom
     size: Optional[str] = "M" # S, M, L
+    duration_seconds: Optional[float] = None  # None = hook visible for the whole clip
 
 @app.post("/api/hook")
 async def add_hook(req: HookRequest, request: Request):
@@ -1271,7 +1272,7 @@ async def add_hook(req: HookRequest, request: Request):
     try:
         # Run in thread pool
         def run_hook():
-             add_hook_to_video(input_path, req.text, output_path, position=req.position, font_scale=font_scale)
+             add_hook_to_video(input_path, req.text, output_path, position=req.position, font_scale=font_scale, duration=req.duration_seconds)
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, run_hook)

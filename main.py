@@ -832,11 +832,29 @@ def get_viral_clips(transcript_result, video_duration):
     )
 
     try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt
-        )
-        
+        # Retry transient Gemini failures (503 high demand, 429 quota, 500)
+        # with exponential backoff before giving up (issue #27).
+        max_attempts = 3
+        response = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                break
+            except Exception as e:
+                msg = str(e)
+                transient = any(tok in msg for tok in (
+                    '503', 'UNAVAILABLE', '429', 'RESOURCE_EXHAUSTED',
+                    '500', 'INTERNAL', 'overloaded', 'Deadline'
+                ))
+                if attempt == max_attempts or not transient:
+                    raise
+                wait = 5 * (2 ** (attempt - 1))
+                print(f"⚠️ Gemini transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
+                time.sleep(wait)
+
         # --- Cost Calculation ---
         try:
             usage = response.usage_metadata

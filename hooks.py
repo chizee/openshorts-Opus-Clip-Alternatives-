@@ -168,7 +168,7 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
     img.save(output_image_path)
     return output_image_path, canvas_w, canvas_h
 
-def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0):
+def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom'
@@ -219,7 +219,8 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             'ffmpeg', '-y',
             '-i', video_path,
             '-i', img_path,
-            '-filter_complex', f"[0:v][1:v]overlay={overlay_x}:{overlay_y}",
+            '-filter_complex', f"[0:v][1:v]overlay={overlay_x}:{overlay_y}"
+                + (f":enable='between(t,0,{float(duration)})'" if duration else ""),
             '-c:a', 'copy',
             '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
             output_path
