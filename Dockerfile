@@ -80,8 +80,10 @@ COPY . .
 # Create a non-root user (Moved up)
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
-# Create directories including Ultralytics cache config
-RUN mkdir -p /app/uploads /app/output /tmp/Ultralytics
+# Create directories including Ultralytics cache config. /app/.cache/huggingface
+# exists in-image (appuser-owned via the chown below) so a persistent volume
+# mounted there inherits writable ownership for the ASR model downloads.
+RUN mkdir -p /app/uploads /app/output /app/.cache/huggingface /tmp/Ultralytics
 # Fix permissions: /app for code/uploads, /tmp/Ultralytics for AI cache
 RUN chown -R appuser:appuser /app /tmp/Ultralytics
 
