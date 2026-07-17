@@ -17,6 +17,9 @@ import mediapipe as mp
 # import whisper (replaced by faster_whisper inside function)
 from google import genai
 from google.genai import types as genai_types
+
+import gemini_worker
+from clip_selection import build_transcript_windows, snap_clip_to_words
 from dotenv import load_dotenv
 import json
 
@@ -847,147 +850,131 @@ def transcribe_video(video_path):
         'language': info.language
     }
 
+def _run_gemini_stage(client, model_name, prompt, schema):
+    """One schema-enforced Gemini call with transient-error backoff.
+    Returns (parsed_dict, cost_analysis)."""
+    config = genai_types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=schema,
+    )
+    max_attempts = 3
+    response = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.models.generate_content(model=model_name, contents=prompt, config=config)
+            break
+        except Exception as e:
+            msg = str(e)
+            transient = any(tok in msg for tok in (
+                '503', 'UNAVAILABLE', '429', 'RESOURCE_EXHAUSTED',
+                '500', 'INTERNAL', 'overloaded', 'Deadline'))
+            if attempt == max_attempts or not transient:
+                raise
+            wait = 5 * (2 ** (attempt - 1))
+            print(f"⚠️ Gemini transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
+            time.sleep(wait)
+
+    parsed_obj = getattr(response, "parsed", None)
+    if parsed_obj is not None:
+        parsed = parsed_obj.model_dump() if hasattr(parsed_obj, "model_dump") else parsed_obj
+    else:
+        parsed = gemini_worker._parse_json_response_text(gemini_worker._get_response_text(response))
+    cost = gemini_worker._calculate_cost_analysis(response, model_name)
+    return parsed, cost
+
+
 def get_viral_clips(transcript_result, video_duration):
-    print("🤖  Analyzing with Gemini...")
-    
+    """Two-pass clip selection: score transcript windows, then detail the best.
+
+    Windowing gives even coverage on long videos (a single call over the whole
+    transcript clusters picks near the start), and the cheap scoring pass keeps
+    the expensive detail reasoning focused on the shortlist. Cuts are snapped to
+    word boundaries so clips don't start/end mid-word.
+    """
+    print("\U0001f916  Analyzing with Gemini (2-pass: score → detail)...")
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("❌ Error: GEMINI_API_KEY not found in environment variables.")
         return None
 
-
     client = genai.Client(api_key=api_key)
-    
     model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
-    
-    print(f"🤖  Initializing Gemini with model: {model_name}")
+    language = str(transcript_result.get('language') or 'unknown')
+    print(f"\U0001f916  Model: {model_name} | language: {language}")
 
-    # Extract words
+    # Full word list — ground truth for snapping cut points.
     words = []
     for segment in transcript_result['segments']:
         for word in segment.get('words', []):
-            words.append({
-                'w': word['word'],
-                's': word['start'],
-                'e': word['end']
-            })
-
-    prompt = GEMINI_PROMPT_TEMPLATE.format(
-        video_duration=video_duration,
-        transcript_text=json.dumps(transcript_result['text']),
-        words_json=json.dumps(words)
-    )
+            words.append({'w': word['word'], 's': word['start'], 'e': word['end']})
 
     try:
-        # Retry transient Gemini failures (503 high demand, 429 quota, 500)
-        # with exponential backoff before giving up (issue #27).
-        max_attempts = 3
-        response = None
-        # Force valid JSON output. Manual fence-stripping + json.loads breaks on
-        # models that emit trailing text or truncate (e.g. flash-lite), so let
-        # the API guarantee a JSON body. Fall back to a plain call if the SDK
-        # or model rejects the option.
-        try:
-            gen_config = genai_types.GenerateContentConfig(response_mime_type="application/json")
-        except Exception:
-            gen_config = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=gen_config,
-                ) if gen_config is not None else client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                break
-            except Exception as e:
-                msg = str(e)
-                transient = any(tok in msg for tok in (
-                    '503', 'UNAVAILABLE', '429', 'RESOURCE_EXHAUSTED',
-                    '500', 'INTERNAL', 'overloaded', 'Deadline'
-                ))
-                if attempt == max_attempts or not transient:
-                    raise
-                wait = 5 * (2 ** (attempt - 1))
-                print(f"⚠️ Gemini transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
-                time.sleep(wait)
+        windows = build_transcript_windows(transcript_result, video_duration)
+        print(f"   Built {len(windows)} scoring window(s).")
+        costs = []
 
-        # --- Cost Calculation ---
-        try:
-            usage = response.usage_metadata
-            if usage:
-                # USD per 1M tokens, longest-prefix match on the model name so
-                # env-overridden models still price correctly (ai.google.dev).
-                MODEL_PRICES = {
-                    "gemini-3.5-flash": (1.50, 9.00),
-                    "gemini-3.1-flash-lite": (0.25, 1.50),
-                    "gemini-3-flash-preview": (0.50, 3.00),
-                    "gemini-2.5-flash-lite": (0.10, 0.40),
-                    "gemini-2.5-flash": (0.30, 2.50),
-                }
-                match = None
-                for key in MODEL_PRICES:
-                    if model_name.startswith(key) and (match is None or len(key) > len(match)):
-                        match = key
-                input_price_per_million, output_price_per_million = (
-                    MODEL_PRICES[match] if match else (0.50, 3.00)  # conservative default
-                )
-                
-                prompt_tokens = usage.prompt_token_count
-                output_tokens = usage.candidates_token_count
-                
-                input_cost = (prompt_tokens / 1_000_000) * input_price_per_million
-                output_cost = (output_tokens / 1_000_000) * output_price_per_million
-                total_cost = input_cost + output_cost
-                
-                cost_analysis = {
-                    "input_tokens": prompt_tokens,
-                    "output_tokens": output_tokens,
-                    "input_cost": input_cost,
-                    "output_cost": output_cost,
-                    "total_cost": total_cost,
-                    "model": model_name
-                }
+        # --- Pass 1: score windows in batches, keep the highest-scoring ---
+        scored = []
+        SCORE_BATCH = 8
+        for b in range(0, len(windows), SCORE_BATCH):
+            batch = windows[b:b + SCORE_BATCH]
+            payload = [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in batch]
+            prompt = gemini_worker.SCORE_PROMPT_TEMPLATE.format(
+                video_duration=video_duration, language=language,
+                windows_json=json.dumps(payload, ensure_ascii=False))
+            parsed, cost = _run_gemini_stage(client, model_name, prompt, gemini_worker.ScoreResponse)
+            if cost:
+                costs.append(cost)
+            scored.extend(parsed.get("windows") or [])
 
-                print(f"💰 Token Usage ({model_name}):")
-                print(f"   - Input Tokens: {prompt_tokens} (${input_cost:.6f})")
-                print(f"   - Output Tokens: {output_tokens} (${output_cost:.6f})")
-                print(f"   - Total Estimated Cost: ${total_cost:.6f}")
-                
-        except Exception as e:
-            print(f"⚠️ Could not calculate cost: {e}")
-            cost_analysis = None
-        # ------------------------
+        # Shortlist the top windows; scale with duration so long videos surface
+        # more candidates without exploding the detail call.
+        scored.sort(key=lambda w: w.get("score", 0), reverse=True)
+        target = max(3, min(10, int(video_duration // 90) + 2))
+        by_id = {w["id"]: w for w in windows}
+        shortlist = [by_id[w["id"]] for w in scored[:target] if w.get("id") in by_id]
+        if not shortlist:
+            shortlist = windows[:target]  # scoring returned nothing usable
+        print(f"   Shortlisted {len(shortlist)} window(s) for detail.")
 
-        # Clean response if it contains markdown code blocks
-        text = (response.text or "").strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+        # --- Pass 2: detailed clip extraction on the shortlist ---
+        payload = [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in shortlist]
+        prompt = gemini_worker.DETAIL_PROMPT_TEMPLATE.format(
+            video_duration=video_duration, language=language,
+            windows_json=json.dumps(payload, ensure_ascii=False))
+        detail, cost = _run_gemini_stage(client, model_name, prompt, gemini_worker.DetailResponse)
+        if cost:
+            costs.append(cost)
 
-        try:
-            result_json = json.loads(text)
-        except json.JSONDecodeError:
-            # Rescue: extract the outermost {...} object if the model wrapped
-            # the JSON in prose or appended stray tokens.
-            first, last = text.find('{'), text.rfind('}')
-            if first == -1 or last <= first:
-                raise
-            result_json = json.loads(text[first:last + 1])
+        shorts = detail.get("shorts") or []
+        # Snap each proposed clip onto real word boundaries (+ a bit of silence).
+        for s in shorts:
+            ns, ne = snap_clip_to_words(s.get("start", 0), s.get("end", 0), words, video_duration)
+            s["start"], s["end"] = ns, ne
 
+        # Aggregate cost across both passes.
+        cost_analysis = None
+        if costs:
+            cost_analysis = {
+                "input_tokens": sum(c.get("input_tokens", 0) for c in costs),
+                "output_tokens": sum(c.get("output_tokens", 0) for c in costs),
+                "total_cost": sum(c.get("total_cost", 0) for c in costs),
+                "model": model_name,
+            }
+            print(f"\U0001f4b0 Total cost ({model_name}, 2-pass, {len(costs)} calls): ${cost_analysis['total_cost']:.6f}")
+
+        if not shorts:
+            print("⚠️ 2-pass returned no clips.")
+            return None
+
+        result = {"shorts": shorts}
         if cost_analysis:
-            result_json['cost_analysis'] = cost_analysis
-
-        return result_json
+            result["cost_analysis"] = cost_analysis
+        return result
     except Exception as e:
         print(f"❌ Gemini Error: {e}")
         return None
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="AutoCrop-Vertical with Viral Clip Detection.")
