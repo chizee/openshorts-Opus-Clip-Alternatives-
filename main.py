@@ -858,12 +858,22 @@ def get_viral_clips(transcript_result, video_duration):
         try:
             usage = response.usage_metadata
             if usage:
-                # Gemini 2.5 Flash Pricing (Dec 2025)
-                # Input: $0.10 per 1M tokens
-                # Output: $0.40 per 1M tokens
-                
-                input_price_per_million = 0.10
-                output_price_per_million = 0.40
+                # USD per 1M tokens, longest-prefix match on the model name so
+                # env-overridden models still price correctly (ai.google.dev).
+                MODEL_PRICES = {
+                    "gemini-3.5-flash": (1.50, 9.00),
+                    "gemini-3.1-flash-lite": (0.25, 1.50),
+                    "gemini-3-flash-preview": (0.50, 3.00),
+                    "gemini-2.5-flash-lite": (0.10, 0.40),
+                    "gemini-2.5-flash": (0.30, 2.50),
+                }
+                match = None
+                for key in MODEL_PRICES:
+                    if model_name.startswith(key) and (match is None or len(key) > len(match)):
+                        match = key
+                input_price_per_million, output_price_per_million = (
+                    MODEL_PRICES[match] if match else (0.50, 3.00)  # conservative default
+                )
                 
                 prompt_tokens = usage.prompt_token_count
                 output_tokens = usage.candidates_token_count
