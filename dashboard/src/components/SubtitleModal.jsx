@@ -60,16 +60,6 @@ const CAPTION_PRESETS = [
     { id: 'classic', label: 'Classic',    style: 'classic', effect: 'none', highlightColor: '#FFD700', baseOpacity: 1.0,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
 ];
 
-// Mirrors the backend's ASS dimming: a fully-opaque scaled color (not CSS
-// opacity), so the preview matches what gets burned into the video.
-const dimColor = (hex, k) => {
-    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
-    if (!m) return hex;
-    const scale = 0.35 + 0.65 * k;
-    const [r, g, b] = [0, 2, 4].map(i => Math.round(parseInt(m[1].slice(i, i + 2), 16) * scale));
-    return `rgb(${r}, ${g}, ${b})`;
-};
-
 const swatchClass = (selected) =>
     `w-6 h-6 rounded-full transition-all ${selected
         ? 'ring-2 ring-[color:var(--color-accent)] ring-offset-2 ring-offset-[color:var(--color-paper-2)]'
@@ -178,6 +168,9 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
             bgColor,
             bgOpacity,
             animation,
+            // Karaoke look reflected live in the playable preview.
+            baseOpacity: style === 'karaoke' ? baseOpacity : 1,
+            uppercase: style === 'karaoke' ? uppercase : false,
         },
     };
 
@@ -220,36 +213,6 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             <Loader2 size={16} className="animate-spin" />
                             <span className="text-sm lowercase">Loading preview...</span>
                         </div>
-                    ) : style === 'karaoke' ? (
-                        /* Karaoke burns server-side; show a CSS mock that mirrors
-                           the exact burned look (dim, uppercase, effects). */
-                        <>
-                            <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
-                            <div className={`absolute w-full px-8 text-center pointer-events-none flex flex-col items-center justify-center
-                                ${position === 'top' ? 'top-20' : position === 'middle' ? 'top-0 bottom-0' : 'bottom-20'}
-                            `}>
-                                <span style={{ ...fallbackPreviewStyle, color: undefined }}>
-                                    {(captions.length >= 4
-                                        ? captions.slice(0, 4).map(c => c.text)
-                                        : ['this', 'word', 'is', 'spoken']
-                                    ).map((w, i) => {
-                                        const word = uppercase ? w.toUpperCase() : w;
-                                        const active = i === 1;
-                                        if (!active) {
-                                            return <span key={i} style={{ color: dimColor(fontColor, baseOpacity) }}>{word} </span>;
-                                        }
-                                        return (
-                                            <span key={i} style={{
-                                                color: effect === 'box' ? '#FFFFFF' : highlightColor,
-                                                ...(effect === 'glow' ? { textShadow: `0 0 6px ${highlightColor}, 0 0 14px ${highlightColor}` } : {}),
-                                                ...(effect === 'pop' ? { display: 'inline-block', transform: 'scale(1.18)', margin: '0 3px' } : {}),
-                                                ...(effect === 'box' ? { backgroundColor: highlightColor, borderRadius: '4px', padding: '0 5px' } : {}),
-                                            }}>{word} </span>
-                                        );
-                                    })}
-                                </span>
-                            </div>
-                        </>
                     ) : useRemotionPreview ? (
                         <RemotionPreview
                             videoUrl={videoUrl}

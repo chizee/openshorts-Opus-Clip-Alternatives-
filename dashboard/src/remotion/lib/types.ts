@@ -21,6 +21,9 @@ export interface SubtitleStyle {
   bgColor: string;
   bgOpacity: number;
   animation: SubtitleAnimation;
+  // Karaoke look: dim inactive words (0-1) and force uppercase.
+  baseOpacity?: number;
+  uppercase?: boolean;
 }
 
 export interface SubtitleConfig {
