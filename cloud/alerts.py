@@ -15,9 +15,24 @@ _ALERT_COOLDOWN = 3600              # 1 hour between repeats of the same alert
 _FAIL_WINDOW_MIN = 6               # need at least this many recent jobs to judge a rate
 _FAIL_THRESHOLD = 5                # ...and this many failures among them
 
-# Substrings that suggest the proxy itself failed (auth / balance / tunnel).
-_PROXY_HINTS = ("proxy", "407", "proxyauthentication", "tunnel connection",
-                "credit", "balance", "insufficient", "payment required")
+# Specific signatures of a genuine proxy / download-stage failure. Kept precise
+# on purpose: a bare "proxy"/"credit"/"balance" match fired on any job whose logs
+# merely echoed the proxy URL (yt-dlp debug) or whose video title contained one of
+# those words, producing false "out of credits" alerts for jobs that actually
+# failed later in processing. These phrases only appear in real proxy failures.
+_PROXY_HINTS = (
+    "proxyerror",
+    "cannot connect to proxy",
+    "failed to connect to proxy",
+    "unable to connect to proxy",
+    "proxy authentication required",
+    "407 proxy",
+    "http error 407",
+    "tunnel connection failed",
+    "402 payment required",
+    "out of credits",
+    "insufficient balance",
+)
 
 
 def _looks_like_proxy_error(err: str) -> bool:

@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import subprocess
 import threading
@@ -469,11 +470,41 @@ def _safe_under(base_dir: str, user_rel_path: str) -> Optional[str]:
 class ProcessRequest(BaseModel):
     url: str
 
+# Masks user:password credentials embedded in any URL (e.g. the residential
+# proxy URL that yt-dlp echoes in its verbose debug output) before the line is
+# ever printed to the server console or stored in the job log.
+_CREDENTIAL_URL_RE = re.compile(r'(\w+://)[^:/@\s]+:[^@/\s]+@')
+
+
+def _scrub_secrets(line: str) -> str:
+    return _CREDENTIAL_URL_RE.sub(r'\1***:***@', line)
+
+
+def _visible_logs(logs):
+    """Logs to surface to the client.
+
+    Self-host (BILLING off) shows the full pipeline output so people running
+    their own instance can debug. Cloud shows only the pipeline's own friendly
+    progress lines (emoji-prefixed, plus the worker's start/finish markers) and
+    hides the raw yt-dlp / ffmpeg / debug spew from paying users.
+    """
+    if not BILLING_ENABLED:
+        return logs
+    visible = []
+    for ln in logs:
+        s = ln.lstrip()
+        if not s:
+            continue
+        if s.startswith(("Job started", "Process finished")) or ord(s[0]) > 0x2000:
+            visible.append(ln)
+    return visible
+
+
 def enqueue_output(out, job_id):
     """Reads output from a subprocess and appends it to jobs logs."""
     try:
         for line in iter(out.readline, b''):
-            decoded_line = line.decode('utf-8').strip()
+            decoded_line = _scrub_secrets(line.decode('utf-8').strip())
             if decoded_line:
                 print(f"📝 [Job Output] {decoded_line}")
                 if job_id in jobs:
@@ -713,7 +744,7 @@ async def get_status(job_id: str, request: Request):
     await _assert_job_owner(request, job)
     return {
         "status": job['status'],
-        "logs": job['logs'],
+        "logs": _visible_logs(job['logs']),
         "result": job.get('result')
     }
 
