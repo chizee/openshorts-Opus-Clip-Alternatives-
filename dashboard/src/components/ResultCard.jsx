@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
@@ -9,7 +9,7 @@ import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 import { renderInBrowser } from '../lib/renderInBrowser';
 
-const QUIET_BTN = 'group flex items-center justify-center gap-2 py-2 px-2 rounded-input border border-rule hover:bg-paper3 text-xs lowercase text-ink2 transition-colors disabled:opacity-45 disabled:cursor-not-allowed';
+const QUIET_BTN = 'group flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-input border border-rule hover:bg-paper3 text-[11px] lowercase text-ink2 whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed';
 
 const PLATFORM_OPTIONS = [
     { value: 'tiktok', label: 'tiktok', icon: <Video size={16} /> },
@@ -23,8 +23,9 @@ function formatDuration(clip) {
     return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
 }
 
-export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange }) {
+export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials }) {
     const [showModal, setShowModal] = useState(false);
+    const [showDescModal, setShowDescModal] = useState(false);
     const [showSubtitleModal, setShowSubtitleModal] = useState(false);
     const videoRef = React.useRef(null);
     // Pristine base clip (no burned subtitles/hook), stable regardless of how
@@ -44,6 +45,7 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
     // A reopened project seeds it from the persisted project state.
     const [serverVideoFile, setServerVideoFile] = useState(initialState?.server_file || (clip.video_url || '').split('/').pop());
     const [videoErrored, setVideoErrored] = useState(false);
+    const [resolution, setResolution] = useState(null);
 
     // If the local video failed and a durable R2 URL is (now) available, use it.
     // Handles the race where the video errors before the durable URL has loaded.
@@ -132,6 +134,20 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
             .catch(() => {});
     }, [jobId, index]);
 
+    // Which platforms the selected profile actually has linked. `null` means
+    // unknown (profile list not loaded) — in that case nothing is gated.
+    const knownConnections = Array.isArray(connectedPlatforms);
+    const noAccountsConnected = knownConnections && connectedPlatforms.length === 0;
+    const platformOptions = knownConnections
+        ? PLATFORM_OPTIONS.map((o) => (connectedPlatforms.includes(o.value) ? o : { ...o, disabled: true, hint: 'not connected' }))
+        : PLATFORM_OPTIONS;
+
+    const handleConnectAccounts = () => {
+        setShowModal(false);
+        if (onConnectSocials) onConnectSocials();
+        else window.open('https://app.upload-post.com', '_blank', 'noopener');
+    };
+
     // Initialize/Reset form when modal opens
     useEffect(() => {
         if (showModal) {
@@ -140,6 +156,14 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
             setIsScheduling(false);
             setScheduleDate("");
             setPostResult(null);
+            // Only preselect platforms the profile can actually publish to.
+            if (knownConnections) {
+                setPlatforms({
+                    tiktok: connectedPlatforms.includes('tiktok'),
+                    instagram: connectedPlatforms.includes('instagram'),
+                    youtube: connectedPlatforms.includes('youtube'),
+                });
+            }
         }
     }, [showModal, clip]);
 
@@ -440,6 +464,11 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
             return;
         }
 
+        if (noAccountsConnected) {
+            setPostResult({ success: false, msg: "Connect a social account first." });
+            return;
+        }
+
         const selectedPlatforms = Object.keys(platforms).filter(k => platforms[k]);
         if (selectedPlatforms.length === 0) {
             setPostResult({ success: false, msg: "Select at least one platform." });
@@ -504,15 +533,18 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
     const durationReadout = formatDuration(clip);
 
     return (
-        <div className="card overflow-hidden flex flex-col md:flex-row group hover:border-rule2 transition-colors animate-fade min-h-[300px] h-auto" style={{ animationDelay: `${index * 0.1}s` }}>
-            {/* Left: Video Preview (Responsive Width) */}
-            <div className="w-full md:w-[180px] lg:w-[200px] bg-black relative shrink-0 aspect-[9/16] md:aspect-auto group/video">
+        <div className="card overflow-hidden flex flex-col md:flex-row group hover:border-rule2 transition-colors animate-fade md:min-h-[420px]" style={{ animationDelay: `${index * 0.1}s` }}>
+            {/* Left: Video Preview — 9:16 column matching the fixed card height */}
+            <div className="w-full md:w-[236px] bg-black relative shrink-0 aspect-[9/16] md:aspect-auto group/video">
                 <video
                     ref={videoRef}
                     src={currentVideoUrl}
                     controls
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                     playsInline
+                    onLoadedMetadata={(e) => {
+                        if (e.target.videoWidth) setResolution(`${e.target.videoWidth}×${e.target.videoHeight}`);
+                    }}
                     onError={() => {
                         // Local /videos/ file gone (e.g. cleaned up after a reload) →
                         // fall back to the durable R2 copy for managed users. If the
@@ -556,46 +588,48 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                     </h3>
                     <div className="flex flex-wrap gap-1.5">
                         {durationReadout && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{durationReadout}</span>}
+                        {resolution && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{resolution}</span>}
                         <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">#shorts</span>
                         <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">#viral</span>
                     </div>
                 </div>
 
-                {/* Scrollable Descriptions Area */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2 mb-4">
-                    {/* YouTube */}
-                    <div className="bg-paper rounded-input p-3 border border-rule">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="eyebrow truncate">YOUTUBE</span>
-                            <button
-                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
-                                aria-label="copy youtube title"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                            >
-                                {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="text-xs text-ink2 select-all break-words">
+                {/* Descriptions (compact) — full text lives in the modal */}
+                <div className="flex-1 min-h-0 space-y-2 mb-4">
+                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
+                        <span className="eyebrow shrink-0">YOUTUBE</span>
+                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
                             {clip.video_title_for_youtube_short || "Viral Short Video"}
                         </p>
+                        <button
+                            onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                            aria-label="copy youtube title"
+                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                        >
+                            {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                        </button>
                     </div>
 
-                    {/* TikTok / IG */}
-                    <div className="bg-paper rounded-input p-3 border border-rule">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="eyebrow truncate">TIKTOK · IG</span>
-                            <button
-                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
-                                aria-label="copy caption"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                            >
-                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="text-xs text-ink2 line-clamp-3 hover:line-clamp-none transition-all cursor-pointer select-all break-words">
+                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
+                        <span className="eyebrow shrink-0">TIKTOK · IG</span>
+                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
                             {clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
+                        <button
+                            onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                            aria-label="copy caption"
+                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                        >
+                            {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                        </button>
                     </div>
+
+                    <button
+                        onClick={() => setShowDescModal(true)}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors"
+                    >
+                        <FileText size={14} /> view descriptions
+                    </button>
                 </div>
 
                 {/* Error Message */}
@@ -646,7 +680,7 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
 
                     <button
                         onClick={() => setShowModal(true)}
-                        className="btn-primary py-2 px-2 text-xs"
+                        className="btn-primary flex-col gap-1 py-2 px-1 text-[11px] rounded-input whitespace-nowrap"
                     >
                         <Share2 size={16} className="shrink-0" /> post
                     </button>
@@ -678,6 +712,49 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                 </div>
             </div>
 
+            {/* Descriptions Modal */}
+            <Modal
+                isOpen={showDescModal}
+                onClose={() => setShowDescModal(false)}
+                eyebrow="GENERATED COPY"
+                title="descriptions"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="eyebrow">YOUTUBE TITLE</label>
+                            <button
+                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                                aria-label="copy youtube title"
+                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                            >
+                                {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            </button>
+                        </div>
+                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
+                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                        </p>
+                    </div>
+
+                    <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="eyebrow">TIKTOK · IG CAPTION</label>
+                            <button
+                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                                aria-label="copy caption"
+                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                            >
+                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            </button>
+                        </div>
+                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
+                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                        </p>
+                    </div>
+                </div>
+            </Modal>
+
             {/* Post Modal */}
             <Modal
                 isOpen={showModal}
@@ -686,19 +763,32 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                 title="post clip"
                 size="md"
                 footer={
-                    <button
-                        onClick={handlePost}
-                        disabled={posting || !canPost}
-                        className="btn-primary w-full"
-                    >
-                        {posting ? <><Loader2 size={16} className="animate-spin" /> {isScheduling ? 'scheduling…' : 'publishing…'}</> : <><Share2 size={16} /> {isScheduling ? 'schedule post' : 'publish now'}</>}
-                    </button>
+                    noAccountsConnected ? (
+                        <button onClick={handleConnectAccounts} className="btn-primary w-full">
+                            <Link2 size={16} /> connect accounts
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handlePost}
+                            disabled={posting || !canPost}
+                            className="btn-primary w-full"
+                        >
+                            {posting ? <><Loader2 size={16} className="animate-spin" /> {isScheduling ? 'scheduling…' : 'publishing…'}</> : <><Share2 size={16} /> {isScheduling ? 'schedule post' : 'publish now'}</>}
+                        </button>
+                    )
                 }
             >
                 {!canPost && (
                     <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
                         <AlertCircle size={14} className="mt-0.5 shrink-0" />
                         <div className="lowercase">configure api key in settings first.</div>
+                    </div>
+                )}
+
+                {noAccountsConnected && (
+                    <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <div className="lowercase">no social accounts connected yet — link tiktok, instagram or youtube to publish this clip.</div>
                     </div>
                 )}
 
@@ -759,7 +849,7 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                         <SegmentedControl
                             multi
                             columns={3}
-                            options={PLATFORM_OPTIONS}
+                            options={platformOptions}
                             value={Object.keys(platforms).filter(k => platforms[k])}
                             onChange={(arr) => setPlatforms({
                                 tiktok: arr.includes('tiktok'),
