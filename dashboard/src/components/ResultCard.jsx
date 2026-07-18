@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import SubtitleModal from './SubtitleModal';
@@ -25,6 +25,7 @@ function formatDuration(clip) {
 
 export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange }) {
     const [showModal, setShowModal] = useState(false);
+    const [showDescModal, setShowDescModal] = useState(false);
     const [showSubtitleModal, setShowSubtitleModal] = useState(false);
     const videoRef = React.useRef(null);
     // Pristine base clip (no burned subtitles/hook), stable regardless of how
@@ -566,41 +567,42 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                     </div>
                 </div>
 
-                {/* Scrollable Descriptions Area */}
-                <div className="flex-1 md:max-h-[260px] overflow-y-auto custom-scrollbar space-y-3 pr-2 mb-4">
-                    {/* YouTube */}
-                    <div className="bg-paper rounded-input p-3 border border-rule">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="eyebrow truncate">YOUTUBE</span>
-                            <button
-                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
-                                aria-label="copy youtube title"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                            >
-                                {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="text-xs text-ink2 select-all break-words">
+                {/* Descriptions (compact) — full text lives in the modal */}
+                <div className="flex-1 min-h-0 space-y-2 mb-4">
+                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
+                        <span className="eyebrow shrink-0">YOUTUBE</span>
+                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
                             {clip.video_title_for_youtube_short || "Viral Short Video"}
                         </p>
+                        <button
+                            onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                            aria-label="copy youtube title"
+                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                        >
+                            {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                        </button>
                     </div>
 
-                    {/* TikTok / IG */}
-                    <div className="bg-paper rounded-input p-3 border border-rule">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="eyebrow truncate">TIKTOK · IG</span>
-                            <button
-                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
-                                aria-label="copy caption"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                            >
-                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="text-xs text-ink2 select-all break-words">
+                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0">
+                        <span className="eyebrow shrink-0">TIKTOK · IG</span>
+                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
                             {clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
+                        <button
+                            onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                            aria-label="copy caption"
+                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                        >
+                            {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                        </button>
                     </div>
+
+                    <button
+                        onClick={() => setShowDescModal(true)}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors"
+                    >
+                        <FileText size={14} /> view descriptions
+                    </button>
                 </div>
 
                 {/* Error Message */}
@@ -682,6 +684,49 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                     </button>
                 </div>
             </div>
+
+            {/* Descriptions Modal */}
+            <Modal
+                isOpen={showDescModal}
+                onClose={() => setShowDescModal(false)}
+                eyebrow="GENERATED COPY"
+                title="descriptions"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="eyebrow">YOUTUBE TITLE</label>
+                            <button
+                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                                aria-label="copy youtube title"
+                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                            >
+                                {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            </button>
+                        </div>
+                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
+                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                        </p>
+                    </div>
+
+                    <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <label className="eyebrow">TIKTOK · IG CAPTION</label>
+                            <button
+                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                                aria-label="copy caption"
+                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                            >
+                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            </button>
+                        </div>
+                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
+                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                        </p>
+                    </div>
+                </div>
+            </Modal>
 
             {/* Post Modal */}
             <Modal
