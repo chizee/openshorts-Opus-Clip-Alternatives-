@@ -468,13 +468,8 @@ def analyze_scenes_strategy(video_path, scenes):
     return strategies
 
 def detect_scenes(video_path):
-    video = open_video(video_path)
-    scene_manager = SceneManager()
-    scene_manager.add_detector(ContentDetector())
-    scene_manager.detect_scenes(video=video)
-    scene_list = scene_manager.get_scene_list()
-    fps = video.frame_rate
-    return scene_list, fps
+    import scene_detection
+    return scene_detection.detect_scenes(video_path)
 
 def get_video_resolution(video_path):
     cap = cv2.VideoCapture(video_path)
