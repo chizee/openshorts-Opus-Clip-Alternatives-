@@ -67,12 +67,31 @@ const TikTokIcon = ({ size = 16, className = "" }) => (
   </svg>
 );
 
+// Cloud accounts get an auto-generated opaque id (os_<hash>) as username —
+// meaningless to the user, so the selector shows connected networks instead.
+const isAutoProfileId = (username) => /^os_[0-9a-f]/i.test(username || "");
+
+const ProfileNetworkIcons = ({ profile, size = 12 }) => (
+  <span className="flex items-center gap-1.5">
+    <span className={profile?.connected?.includes('tiktok') ? 'text-ink' : 'text-muted opacity-40'}>
+      <TikTokIcon size={size} />
+    </span>
+    <span className={profile?.connected?.includes('instagram') ? 'text-ink' : 'text-muted opacity-40'}>
+      <Instagram size={size} />
+    </span>
+    <span className={profile?.connected?.includes('youtube') ? 'text-ink' : 'text-muted opacity-40'}>
+      <Youtube size={size} />
+    </span>
+  </span>
+);
+
 const UserProfileSelector = ({ profiles, selectedUserId, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   if (!profiles || profiles.length === 0) return null;
 
   const selectedProfile = profiles.find(p => p.username === selectedUserId) || profiles[0];
+  const autoId = isAutoProfileId(selectedProfile?.username);
 
   return (
     <div className="relative z-50">
@@ -82,9 +101,13 @@ const UserProfileSelector = ({ profiles, selectedUserId, onSelect }) => {
       >
         <span className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-full bg-paper3 border border-rule flex items-center justify-center font-mono text-micro text-brass">
-            {selectedProfile?.username?.substring(0, 1).toUpperCase() || "U"}
+            {autoId ? "S" : (selectedProfile?.username?.substring(0, 1).toUpperCase() || "U")}
           </div>
-          <span className="font-medium text-ink truncate max-w-[100px]">{selectedProfile?.username || "Select User"}</span>
+          {autoId ? (
+            <ProfileNetworkIcons profile={selectedProfile} size={13} />
+          ) : (
+            <span className="font-medium text-ink truncate max-w-[100px]">{selectedProfile?.username || "Select User"}</span>
+          )}
         </span>
         <ChevronDown size={14} className={`text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -103,11 +126,13 @@ const UserProfileSelector = ({ profiles, selectedUserId, onSelect }) => {
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-paper3 flex items-center justify-center font-mono text-micro text-ink border border-rule shrink-0">
-                    {profile.username.substring(0, 2).toUpperCase()}
+                    {isAutoProfileId(profile.username) ? "S" : profile.username.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-ink2 group-hover:text-ink transition-colors truncate">
-                      {profile.username}
+                      {isAutoProfileId(profile.username)
+                        ? `Social profile ${profiles.indexOf(profile) + 1}`
+                        : profile.username}
                     </div>
                     <div className="flex gap-2 mt-0.5">
                       {/* Status indicators */}

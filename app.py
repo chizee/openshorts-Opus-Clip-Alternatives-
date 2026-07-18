@@ -560,26 +560,18 @@ def _visible_logs(logs):
     """Logs to surface to the client.
 
     Self-host (BILLING off) shows the full pipeline output so people running
-    their own instance can debug. Cloud shows only the pipeline's own friendly
-    progress lines (emoji-prefixed, plus the worker's start/finish markers),
-    minus any ingest plumbing (proxy / downloader / cookies) — paying users
-    just want to see analysis and rendering progress.
+    their own instance can debug. Cloud shows a curated whitelist view
+    (log_view.friendly_logs): plain progress for normal users — transcription
+    percentage, clip counters — with no file paths, model names or pipeline
+    internals.
 
     DEBUG_LOGS=true forces the full output even under billing — for local dev
     where you run in paid mode but still want the raw logs.
     """
     if not BILLING_ENABLED or DEBUG_LOGS:
         return logs
-    visible = []
-    for ln in logs:
-        s = ln.lstrip()
-        if not s:
-            continue
-        if _SENSITIVE_LOG_RE.search(ln):
-            continue
-        if s.startswith(("Job started", "Process finished")) or ord(s[0]) > 0x2000:
-            visible.append(ln)
-    return visible
+    from log_view import friendly_logs
+    return friendly_logs(logs)
 
 
 def enqueue_output(out, job_id):

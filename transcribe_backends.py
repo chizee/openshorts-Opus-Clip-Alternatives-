@@ -27,6 +27,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 
 from subtitles import (
     get_whisper_config,
@@ -58,6 +59,28 @@ class _NullGate:
 
 
 _NULL_GATE = _NullGate()
+
+
+class _TranscribeProgress:
+    """Emits '🎙️ Transcribing… NN% (Xs)' lines at 25% steps.
+
+    These are the only transcription lines cloud users see (log_view keeps
+    them), so they must stay free of technical detail.
+    """
+
+    def __init__(self, total_seconds):
+        self.total = max(float(total_seconds or 0), 0.0)
+        self.started = time.time()
+        self.next_pct = 25
+
+    def update(self, position_seconds):
+        if self.total <= 0:
+            return
+        pct = min(int(position_seconds / self.total * 100), 100)
+        while pct >= self.next_pct and self.next_pct <= 100:
+            elapsed = int(time.time() - self.started)
+            print(f"🎙️ Transcribing… {self.next_pct}% ({elapsed}s)", flush=True)
+            self.next_pct += 25
 
 # --- whisper singleton ------------------------------------------------------
 
@@ -94,7 +117,12 @@ def run_whisper_transcription(media_path, **params):
     gate = _ASR_GATE if device != "cpu" else _NULL_GATE
     with gate:
         segments, info = model.transcribe(media_path, **params)
-        return list(segments), info
+        progress = _TranscribeProgress(getattr(info, "duration", 0))
+        materialized = []
+        for segment in segments:
+            materialized.append(segment)
+            progress.update(segment.end)
+        return materialized, info
 
 
 def _transcribe_with_whisper(media_path):
@@ -194,8 +222,17 @@ def _transcribe_with_parakeet(media_path):
     model = _get_parakeet_model()
     wav_path = _extract_wav(media_path)
     try:
+        # 16kHz mono s16le wav -> 32000 bytes per second of audio.
+        try:
+            duration = os.path.getsize(wav_path) / 32000.0
+        except OSError:
+            duration = 0.0
         with _ASR_GATE:
-            results = list(model.recognize(wav_path))
+            progress = _TranscribeProgress(duration)
+            results = []
+            for seg in model.recognize(wav_path):
+                results.append(seg)
+                progress.update(float(seg.end))
     finally:
         try:
             os.remove(wav_path)
