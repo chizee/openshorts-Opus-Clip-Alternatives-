@@ -622,15 +622,17 @@ Technical Details: {str(last_err)}
     return downloaded_file, sanitized_title
 
 def finalize_clip_passthrough(input_video, final_output_video):
-    """Keep the clip's native framing (for horizontal/16:9 output): just
-    re-encode with faststart, no reframing/cropping."""
+    """Keep the clip's native framing (for horizontal/16:9 output).
+
+    The input is the freshly encoded cut, so a stream-copy remux is enough to
+    add +faststart — re-encoding here would only cost time and quality.
+    """
     if os.path.exists(final_output_video):
         os.remove(final_output_video)
     print(f"🎬 Passthrough (native framing): {input_video}")
     cmd = [
         'ffmpeg', '-y', '-i', input_video,
-        *video_encode_args(QUALITY),
-        '-c:a', 'aac', '-movflags', '+faststart',
+        '-c', 'copy', '-movflags', '+faststart',
         final_output_video,
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)
