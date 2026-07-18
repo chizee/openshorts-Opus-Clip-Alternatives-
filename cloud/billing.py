@@ -101,7 +101,15 @@ async def _active_sub_exists(user_id) -> bool:
         sub = (await s.execute(
             select(Subscription).where(Subscription.user_id == user_id)
         )).scalar_one_or_none()
-    return bool(sub and sub.status in ("active", "trialing"))
+    # Block a second checkout for ANY non-terminal subscription, not just
+    # active/trialing. A first charge that fails leaves the sub in past_due /
+    # unpaid / incomplete; those must still block, otherwise the user can spawn a
+    # second subscription while the first one keeps dunning (real case: annual
+    # trial -> end-trial -> card declined -> past_due, then a fresh monthly sub).
+    # Terminal states (canceled, incomplete_expired) do NOT block.
+    return bool(sub and sub.status in (
+        "active", "trialing", "past_due", "unpaid", "incomplete", "paused",
+    ))
 
 
 # --------------------------------------------------------------------------- #
