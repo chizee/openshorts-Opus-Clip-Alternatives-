@@ -687,6 +687,14 @@ def render_clip(input_video, final_output_video, output_format="auto"):
     return process_video_to_vertical(input_video, final_output_video, aspect_ratio=aspect)
 
 
+# Watermark geometry, as fractions of the clip width/height. Top-left (not
+# bottom) on purpose: the bottom strip is what gets cropped away when a clip is
+# re-posted, so a bottom mark is trivially removed.
+WATERMARK_WIDTH_RATIO = 0.30
+WATERMARK_MARGIN_RATIO = 0.05
+WATERMARK_OPACITY = 0.85
+
+
 def apply_watermark(video_path):
     """Burn the OpenShorts watermark into a finished clip (free plan).
 
@@ -694,16 +702,36 @@ def apply_watermark(video_path):
     GENERAL, horizontal passthrough) gets the mark, and later subtitle/hook
     re-encodes keep it — they re-encode the already-marked pixels.
     """
-    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "fonts", "NotoSerif-Bold.ttf")
-    font_arg = f"fontfile={font_path}:" if os.path.exists(font_path) else ""
-    draw = (
-        f"drawtext={font_arg}text=openshorts.app:"
-        "fontcolor=white@0.6:borderw=2:bordercolor=black@0.4:"
-        "fontsize=h/30:x=(w-text_w)/2:y=h-(h/12)"
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "assets", "watermark.png")
+    if not os.path.exists(logo_path):
+        print(f"   ⚠️ Watermark asset missing ({logo_path}); clip kept unmarked.")
+        return False
+
+    # Scale the lockup from the clip's real width: overlay can't read the other
+    # input's size, and computing it here avoids the deprecated scale2ref.
+    try:
+        probe = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
+            stderr=subprocess.STDOUT, timeout=60,
+        ).decode().strip().split("x")
+        vw, vh = int(probe[0]), int(probe[1])
+    except Exception as e:
+        print(f"   ⚠️ Could not probe clip for watermark ({e}); clip kept unmarked.")
+        return False
+
+    wm_w = max(80, int(vw * WATERMARK_WIDTH_RATIO))
+    # Same pixel inset on both axes so the corner gap reads as square.
+    x = y = int(vw * WATERMARK_MARGIN_RATIO)
+    filt = (
+        f"[1:v]scale={wm_w}:-1,format=rgba,"
+        f"colorchannelmixer=aa={WATERMARK_OPACITY}[wm];"
+        f"[0:v][wm]overlay=x={x}:y={y}"
     )
     tmp_path = video_path + ".wm.mp4"
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", draw,
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-i", logo_path,
+           "-filter_complex", filt,
            *video_encode_args(QUALITY), "-c:a", "copy",
            "-movflags", "+faststart", tmp_path]
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,

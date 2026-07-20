@@ -7,6 +7,8 @@ import HookModal from './HookModal';
 import TranslateModal from './TranslateModal';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
+import WatermarkModal, { watermarkNoticeDismissed } from './WatermarkModal';
+import { useAuth } from '../contexts/AuthContext';
 import { renderInBrowser } from '../lib/renderInBrowser';
 
 const QUIET_BTN = 'group flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-input border border-rule hover:bg-paper3 text-[11px] lowercase text-ink2 whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed';
@@ -27,6 +29,8 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
     const [showModal, setShowModal] = useState(false);
     const [showDescModal, setShowDescModal] = useState(false);
     const [showSubtitleModal, setShowSubtitleModal] = useState(false);
+    const [showWatermarkModal, setShowWatermarkModal] = useState(false);
+    const { plan } = useAuth();
     const videoRef = React.useRef(null);
     // Pristine base clip (no burned subtitles/hook), stable regardless of how
     // clip.video_url mutates after server edits. Used as the compositing base
@@ -39,6 +43,26 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
     };
     const originalVideoUrl = getApiUrl((clip.video_url || '').replace(/[^/]+$/, stripBurns((clip.video_url || '').split('/').pop())));
     const [currentVideoUrl, setCurrentVideoUrl] = useState(getApiUrl(clip.video_url));
+
+    const downloadClip = async () => {
+        try {
+            const response = await fetch(currentVideoUrl);
+            if (!response.ok) throw new Error('Download failed');
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `clip-${index + 1}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (err) {
+            console.error('Download error:', err);
+            window.open(currentVideoUrl, '_blank');
+        }
+    };
     // Latest file that exists ON THE SERVER (blob: previews don't count).
     // All server-side operations must chain from this, so burned-in edits
     // (subtitles, hooks, effects) never get silently dropped.
@@ -685,25 +709,15 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                         <Share2 size={16} className="shrink-0" /> post
                     </button>
                     <button
-                        onClick={async (e) => {
+                        onClick={(e) => {
                             e.preventDefault();
-                            try {
-                                const response = await fetch(currentVideoUrl);
-                                if (!response.ok) throw new Error('Download failed');
-                                const blob = await response.blob();
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.style.display = 'none';
-                                a.href = url;
-                                a.download = `clip-${index + 1}.mp4`;
-                                document.body.appendChild(a);
-                                a.click();
-                                window.URL.revokeObjectURL(url);
-                                document.body.removeChild(a);
-                            } catch (err) {
-                                console.error('Download error:', err);
-                                window.open(currentVideoUrl, '_blank');
+                            // Free clips are watermarked — surface the upsell once
+                            // before the first download, then get out of the way.
+                            if (plan === 'free' && !watermarkNoticeDismissed()) {
+                                setShowWatermarkModal(true);
+                                return;
                             }
+                            downloadClip();
                         }}
                         className={QUIET_BTN}
                     >
@@ -904,6 +918,13 @@ export default function ResultCard({ clip, index, jobId, durableUrl, uploadPostK
                 videoUrl={currentVideoUrl}
                 hasApiKey={!!elevenLabsKey}
             />
+
+            {showWatermarkModal && (
+                <WatermarkModal
+                    onClose={() => setShowWatermarkModal(false)}
+                    onContinue={downloadClip}
+                />
+            )}
 
         </div>
     );

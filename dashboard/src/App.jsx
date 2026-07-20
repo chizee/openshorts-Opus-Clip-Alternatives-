@@ -1286,6 +1286,13 @@ function App() {
                   />
                 )}
 
+                {/* The wait is dead time — the best moment to ask for a star. */}
+                {status === 'processing' && (
+                  <div className="my-3">
+                    <StarBanner message="Free while it renders?" />
+                  </div>
+                )}
+
                 {/* Logs Terminal */}
                 <div className={`bg-paper rounded-card border border-rule overflow-hidden flex flex-col transition-all duration-500 ${status === 'complete' ? 'h-32 min-h-0 opacity-50 hover:opacity-100' : 'flex-1 min-h-[200px]'}`}>
                   <div className="px-4 py-2 border-b border-rule flex items-center justify-between bg-paper2 shrink-0">
