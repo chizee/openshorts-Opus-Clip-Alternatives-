@@ -438,6 +438,125 @@ def _recover_jobs_from_disk():
         print(f"♻️  Recovered {recovered} completed job(s) from disk.")
 
 
+# --- Mid-flight job resume (survive a redeploy without losing work) ----------
+# A job lives only in memory, so killing the container mid-processing used to
+# lose it: the user's clip just stops. We persist a tiny manifest per job and,
+# on startup, re-enqueue any that were interrupted — the user sees it resume
+# instead of vanish. Bounded by MAX_RESUME_ATTEMPTS so a video that reliably
+# crashes the worker can't crashloop the service.
+_RESUME_FILE = ".resume.json"
+MAX_RESUME_ATTEMPTS = 2
+
+
+def _write_resume_manifest(job_id, cmd, priority, user_id, reservation_id, watermark):
+    try:
+        path = os.path.join(OUTPUT_DIR, job_id, _RESUME_FILE)
+        with open(path, "w") as f:
+            json.dump({
+                "cmd": cmd, "priority": priority,
+                "user_id": None if user_id is None else str(user_id),
+                "reservation_id": reservation_id,
+                "watermark": bool(watermark), "attempts": 0,
+            }, f)
+    except Exception as e:
+        print(f"⚠️ Could not write resume manifest for {job_id}: {e}")
+
+
+def _clear_resume_manifest(job_id):
+    """Drop the manifest once a job reaches a terminal state, so it is never
+    re-run on a later restart. Only an interrupted (still-running) job keeps it."""
+    try:
+        os.remove(os.path.join(OUTPUT_DIR, job_id, _RESUME_FILE))
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"⚠️ Could not clear resume manifest for {job_id}: {e}")
+
+
+def _resume_interrupted_jobs() -> set:
+    """Re-enqueue jobs that were mid-processing when the server last stopped.
+
+    Runs after _recover_jobs_from_disk: a job whose clips already finished has a
+    metadata JSON and is recovered as 'completed', so we only resume manifests
+    with no metadata yet (analysis never finished).
+
+    Returns the set of reservation ids for the resumed jobs, so the caller can
+    keep them out of the orphaned-reservation refund. Does NO DB work — the DB
+    engine isn't up yet at this point in startup. A poison job (too many
+    attempts) is simply not resumed; its reservation is then refunded as a
+    normal orphan.
+    """
+    keep_reservations: set = set()
+    try:
+        entries = os.listdir(OUTPUT_DIR)
+    except FileNotFoundError:
+        return keep_reservations
+    resumed = 0
+    for job_id in entries:
+        job_path = os.path.join(OUTPUT_DIR, job_id)
+        manifest_path = os.path.join(job_path, _RESUME_FILE)
+        if not os.path.isfile(manifest_path):
+            continue
+        # Already finished generating clips → recovered as completed elsewhere.
+        if glob.glob(os.path.join(job_path, "*_metadata.json")):
+            _clear_resume_manifest(job_id)
+            continue
+        try:
+            with open(manifest_path) as f:
+                m = json.load(f)
+        except Exception as e:
+            print(f"⚠️ Bad resume manifest for {job_id}: {e}")
+            continue
+
+        attempts = int(m.get("attempts", 0)) + 1
+        user_id = m.get("user_id")
+        reservation_id = m.get("reservation_id")
+        if attempts > MAX_RESUME_ATTEMPTS:
+            # Poison job: don't resume. Leaving its reservation out of the keep
+            # set lets the orphan sweep refund it, and the user can retry by hand.
+            print(f"🛑 Job {job_id} exceeded {MAX_RESUME_ATTEMPTS} resume attempts — giving up.")
+            _clear_resume_manifest(job_id)
+            continue
+
+        # Rebuild env from scratch — the manifest holds no secrets. Managed
+        # (cloud) jobs get the server key; self-host falls back to its env key.
+        env = os.environ.copy()
+        if BILLING_ENABLED and user_id is not None:
+            try:
+                env["GEMINI_API_KEY"] = managed_keys.gemini_key()
+            except Exception:
+                pass
+        if m.get("watermark"):
+            env["WATERMARK"] = "1"
+        else:
+            env.pop("WATERMARK", None)
+
+        m["attempts"] = attempts
+        try:
+            with open(manifest_path, "w") as f:
+                json.dump(m, f)
+        except Exception:
+            pass
+
+        jobs[job_id] = {
+            'status': 'queued',
+            'logs': [f"♻️ Resuming your video after a server update (attempt {attempts})."],
+            'cmd': m.get("cmd"),
+            'env': env,
+            'output_dir': job_path,
+            'user_id': None if user_id is None else user_id,
+            'reservation_id': reservation_id,
+            'watermark': bool(m.get("watermark")),
+        }
+        if reservation_id:
+            keep_reservations.add(str(reservation_id))
+        _enqueue_job(job_id, int(m.get("priority", 2)))
+        resumed += 1
+    if resumed:
+        print(f"♻️  Re-enqueued {resumed} interrupted job(s) after restart.")
+    return keep_reservations
+
+
 def _dir_size(path: str) -> int:
     total = 0
     for root, _dirs, files in os.walk(path):
@@ -625,6 +744,10 @@ async def run_job_wrapper(job_id):
     except Exception as e:
          print(f"❌ Job wrapper error {job_id}: {e}")
     finally:
+        # The subprocess returned (success or genuine failure) — a terminal
+        # state, so drop the resume manifest. It only survives if the container
+        # was killed mid-run, which is exactly when we want to resume.
+        _clear_resume_manifest(job_id)
         # Settle the minute reservation (managed jobs only): commit on success,
         # release otherwise so the minutes go back to the user.
         await _settle_reservation(job_id)
@@ -738,11 +861,14 @@ async def _settle_reservation(job_id):
 async def lifespan(app: FastAPI):
     # Rehydrate finished jobs from disk before serving (survives restarts).
     _recover_jobs_from_disk()
+    # Re-enqueue jobs that were mid-processing when we stopped (redeploy). Their
+    # reservations must survive the orphan sweep so the resumed run can settle them.
+    _resumed_reservation_ids = _resume_interrupted_jobs()
     # Start worker and cleanup
     worker_task = asyncio.create_task(process_queue())
     cleanup_task = asyncio.create_task(cleanup_jobs())
     if BILLING_ENABLED:
-        await cloud.setup_async(app)
+        await cloud.setup_async(app, keep_reservation_ids=_resumed_reservation_ids)
     yield
     # Cleanup (optional: cancel worker)
 
@@ -1118,6 +1244,7 @@ async def process_endpoint(
         'attestation': attestation,
         'user_id': user_id,
         'reservation_id': reservation_id,
+        'watermark': env.get("WATERMARK") == "1",
     }
 
     # Persist the owner so recovered jobs keep their multi-tenant guard after a
@@ -1129,6 +1256,11 @@ async def process_endpoint(
                 f.write(str(user_id))
         except Exception as e:
             print(f"⚠️ Could not persist job owner for {job_id}: {e}")
+
+    # Resume manifest: enough to re-run this job if the container dies mid-flight
+    # (a redeploy). No secrets — the env is rebuilt from os.environ on resume.
+    _write_resume_manifest(job_id, cmd, priority, user_id, reservation_id,
+                           watermark=jobs[job_id]['watermark'])
 
     _enqueue_job(job_id, priority)
 

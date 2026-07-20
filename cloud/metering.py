@@ -316,20 +316,28 @@ async def release_reservation(ledger_id: str):
             row.status = "released"
 
 
-async def release_orphaned_reservations():
+async def release_orphaned_reservations(keep_ids=None):
     """At startup, release every still-``reserved`` row.
 
     Jobs live only in memory, so a restart loses all in-flight jobs; their
     reservations must be refunded or they would leak quota forever.
+
+    ``keep_ids`` are reservations for jobs being *resumed* after the restart —
+    those keep running and will settle themselves, so they must not be refunded.
     """
+    keep = {str(k) for k in (keep_ids or ())}
     async with database.session() as session:
         ids = list((await session.execute(
             select(UsageLedger.id).where(UsageLedger.status == "reserved")
         )).scalars())
+    released = 0
     for lid in ids:
+        if str(lid) in keep:
+            continue
         await release_reservation(str(lid))
-    if ids:
-        print(f"☁️  Released {len(ids)} orphaned reservation(s) at startup.")
+        released += 1
+    if released:
+        print(f"☁️  Released {released} orphaned reservation(s) at startup.")
 
 
 async def _sweep_once():
