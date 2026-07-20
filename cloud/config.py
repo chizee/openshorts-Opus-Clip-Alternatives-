@@ -35,11 +35,8 @@ FREE_PLAN_MINUTES = 20
 # Gate the free allowance behind Google sign-in; magic-link-only accounts are
 # disposable-email fodder and stay unentitled.
 FREE_REQUIRES_GOOGLE = True
-# Max processing jobs per free account per UTC day (abuse bound on GPU/proxy).
-FREE_DAILY_JOBS = 3
-# Same bound per client IP across free accounts. Generous on purpose: much of
-# the audience is behind CGNAT (India/Indonesia share IPs among thousands).
-FREE_DAILY_JOBS_PER_IP = 5
+# The 20-minute monthly quota is the only bound on free usage — no daily job
+# cap (it confused users and the minute ledger already caps real cost).
 # Free users' clips expire from R2 after this many days (paid libraries are
 # durable). Also an upgrade lever, mirroring OpusClip's 3-day free exports.
 FREE_CLIP_RETENTION_DAYS = 7

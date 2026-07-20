@@ -130,18 +130,9 @@ def gemini_missing_error():
     return HTTPException(status_code=400, detail="Missing X-Gemini-Key header")
 
 
-def _client_ip(request) -> str:
-    """Client IP, honoring the proxy's X-Forwarded-For (Traefik in prod)."""
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
-# In-memory abuse counters. Reset on restart by design — the hard monthly
-# quota lives in the metering ledger; these only flatten bursts and casual
-# multi-accounting, so losing them on a deploy is fine.
-_daily_counters = {"date": None, "users": {}, "ips": {}}
+# Probe rate limiter. In-memory, resets on restart by design — the hard monthly
+# quota lives in the metering ledger; this only stops someone hammering the
+# proxy with metadata probes.
 _probe_times: dict = {}  # user_id -> [monotonic timestamps]
 PROBES_PER_HOUR = 15
 
@@ -162,13 +153,6 @@ def _maybe_send_quota_email(user):
     from cloud.emails import send_out_of_minutes_email
     upgrade_url = f"{_cloud_config.settings.frontend_url}/#/pricing"
     asyncio.create_task(send_out_of_minutes_email(user.email, upgrade_url))
-
-
-def _daily_bucket(kind: str) -> dict:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if _daily_counters["date"] != today:
-        _daily_counters.update(date=today, users={}, ips={})
-    return _daily_counters[kind]
 
 
 def _check_probe_rate(user_id):
@@ -212,23 +196,9 @@ async def reserve_process_minutes(request, url, input_path, job_id):
         raise HTTPException(status_code=429,
                             detail="You already have the maximum number of jobs running. Please wait.")
 
-    # Free-plan daily burst caps, checked BEFORE the probe so URL spam never
-    # reaches the proxy. Per-account and per-IP (multi-account abuse).
-    if user.plan == "free":
-        user_counts = _daily_bucket("users")
-        if user_counts.get(str(user.id), 0) >= _cloud_config.FREE_DAILY_JOBS:
-            raise HTTPException(status_code=429, detail={
-                "error": "daily_limit",
-                "message": "Free plan daily limit reached. Come back tomorrow or upgrade for more.",
-            })
-        ip_counts = _daily_bucket("ips")
-        if ip_counts.get(_client_ip(request), 0) >= _cloud_config.FREE_DAILY_JOBS_PER_IP:
-            raise HTTPException(status_code=429, detail={
-                "error": "daily_limit",
-                "message": "Free plan daily limit reached for this network. Come back tomorrow or upgrade.",
-            })
-
-    # Probe rate limit: probing costs a (cheap) proxied metadata call.
+    # Probe rate limit: probing costs a (cheap) proxied metadata call. The
+    # 20-minute monthly quota is the real bound on free usage; there is no daily
+    # job cap.
     _check_probe_rate(user.id)
 
     # Probe input duration (blocking → run in a thread).
@@ -252,14 +222,6 @@ async def reserve_process_minutes(request, url, input_path, job_id):
             "minutes_required": e.required,
             "minutes_remaining": e.remaining,
         })
-
-    # Count the job against the free daily caps only once it actually reserved.
-    if user.plan == "free":
-        user_counts = _daily_bucket("users")
-        user_counts[str(user.id)] = user_counts.get(str(user.id), 0) + 1
-        ip_counts = _daily_bucket("ips")
-        ip = _client_ip(request)
-        ip_counts[ip] = ip_counts.get(ip, 0) + 1
 
     return user.id, priority, reservation_id, user.plan
 

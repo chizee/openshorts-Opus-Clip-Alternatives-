@@ -12,6 +12,7 @@ import ScheduleWeekModal from './components/ScheduleWeekModal';
 import UsageMeter from './components/UsageMeter';
 import TopUpModal from './components/TopUpModal';
 import StarBanner from './components/StarBanner';
+import PlanChoiceModal from './components/PlanChoiceModal';
 import TrialUpgradeModal from './components/TrialUpgradeModal';
 import LoginModal from './components/LoginModal';
 import TrialGate from './components/TrialGate';
@@ -174,6 +175,7 @@ function App() {
   const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [showPlanChoice, setShowPlanChoice] = useState(false);
   const [showTrialUpgrade, setShowTrialUpgrade] = useState(false);
   const [topUpInfo, setTopUpInfo] = useState({});
   // Durable R2 URLs (per clip index) for the current job — used as a fallback when
@@ -538,6 +540,19 @@ function App() {
   // `keysMissing` now means "self-host BYOK keys missing" — it never fires on hosted.
   const keysMissing = !billingEnabled && (!apiKey || !uploadPostKey);
   const needsPlan = billingEnabled && !isManaged;   // hosted, signed-out or no active plan/trial
+
+  // Fresh sign-up with no entitlement yet: show the plan-choice popup once
+  // (AuthContext set the flag after the auth redirect) instead of the pricing page.
+  useEffect(() => {
+    if (billingEnabled && isSignedIn && !isManaged) {
+      let flagged = false;
+      try { flagged = localStorage.getItem('os_show_plan_choice') === '1'; } catch (_) { /* ignore */ }
+      if (flagged) {
+        setShowPlanChoice(true);
+        try { localStorage.removeItem('os_show_plan_choice'); } catch (_) { /* ignore */ }
+      }
+    }
+  }, [billingEnabled, isSignedIn, isManaged]);
   // Included in the plan (fully managed, no keys): Clip Generator + YouTube Studio.
   // Advanced (bring your own fal.ai + ElevenLabs keys): AI Shorts + AI Agent.
   const INCLUDED_TOOL_TABS = ['dashboard', 'thumbnails'];
@@ -769,9 +784,9 @@ function App() {
               <UsageMeter onClick={() => { window.location.hash = '#/account'; }} />
             )}
             {billingEnabled && isSignedIn && !isManaged && (
-              <button onClick={() => { window.location.hash = '#/pricing'; }}
+              <button onClick={() => setShowPlanChoice(true)}
                 className="btn-primary px-4 py-2 text-xs">
-                Start free trial
+                Choose a plan
               </button>
             )}
             {billingEnabled && !isSignedIn && (
@@ -894,15 +909,15 @@ function App() {
                       <div className="w-9 h-9 rounded-input bg-paper3 flex items-center justify-center shrink-0">
                         <Sparkles size={16} className="text-brass" />
                       </div>
-                      <h2 className="text-base font-medium text-ink lowercase">Start your free trial</h2>
+                      <h2 className="text-base font-medium text-ink lowercase">Choose your plan</h2>
                     </div>
-                    <span className="badge-brass">3 days free</span>
+                    <span className="badge-ok">Free plan available</span>
                   </div>
                   <p className="text-xs text-muted mb-5 leading-relaxed">
-                    Generate shorts with zero setup — no API keys needed. 3 days free, then from $12/mo. Cancel anytime.
+                    Generate shorts with zero setup — no API keys needed. Start free with 20 min/month, or go paid from $12/mo. Cancel anytime.
                   </p>
-                  <button onClick={() => { window.location.hash = '#/pricing'; }} className="btn-primary py-2 px-4 text-sm">
-                    <Sparkles size={16} /> See plans & start trial
+                  <button onClick={() => setShowPlanChoice(true)} className="btn-primary py-2 px-4 text-sm">
+                    <Sparkles size={16} /> Choose a plan
                   </button>
                 </div>
               ) : (
@@ -1552,6 +1567,7 @@ function App() {
 
 
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
+      {showPlanChoice && <PlanChoiceModal onClose={() => setShowPlanChoice(false)} />}
       {showTopUp && (
         <TopUpModal
           onClose={() => setShowTopUp(false)}

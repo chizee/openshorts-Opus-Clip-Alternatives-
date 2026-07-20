@@ -69,10 +69,13 @@ export function AuthProvider({ children }) {
       // This handler only runs on the auth redirect, so a resolved user here is
       // a fresh sign-in / sign-up — the top of the conversion funnel.
       if (signedInMe?.user) track('Signup', { props: { method: kind === 'verify' ? 'magic_link' : 'google' } });
-      // Google sign-ins are entitled (free plan) and land in the app; only
-      // magic-link-only accounts (no entitlement) are routed to pricing, where
-      // the free card tells them to use Google.
-      if (signedInMe?.user && !signedInMe?.entitled) destination = '#/pricing';
+      // Everyone lands in the app. A signed-in user with no entitlement yet
+      // (email-only sign-up) gets a plan-choice popup there instead of being
+      // dumped on the pricing page. Google sign-ins are already on the free
+      // plan, so they never see it.
+      if (signedInMe?.user && !signedInMe?.entitled) {
+        try { localStorage.setItem('os_show_plan_choice', '1'); } catch (_) { /* ignore */ }
+      }
     } catch (e) {
       // fall through — user lands signed-out
     } finally {
