@@ -277,9 +277,9 @@ export default function Landing({ onLaunchApp }) {
                     type="url"
                     value={heroUrl}
                     onChange={(e) => setHeroUrl(e.target.value)}
-                    placeholder="paste a youtube link"
+                    placeholder="paste a video link"
                     className="input-field pl-11"
-                    aria-label="YouTube video link"
+                    aria-label="Video link"
                   />
                 </div>
                 <button type="submit" className="btn-primary whitespace-nowrap">
