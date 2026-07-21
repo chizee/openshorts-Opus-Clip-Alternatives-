@@ -33,6 +33,12 @@ def _ts(unix) -> datetime:
     return datetime.fromtimestamp(unix, tz=timezone.utc)
 
 
+def _money(cents, currency="usd") -> str:
+    """'$59.00' from Stripe's integer-cents + currency."""
+    sym = {"usd": "$", "eur": "€", "gbp": "£"}.get((currency or "usd").lower(), "")
+    return f"{sym}{(cents or 0) / 100:,.2f} {(currency or 'usd').upper()}"
+
+
 # --------------------------------------------------------------------------- #
 # Catalog (resolved once by lookup_key)
 # --------------------------------------------------------------------------- #
@@ -241,6 +247,7 @@ async def handle_event(event: dict):
         await _set_subscription_status_by_invoice(obj, "past_due", created)
     elif etype == "invoice.paid":
         await _set_subscription_status_by_invoice(obj, "active", created)
+        await _notify_invoice_paid(obj)
 
 
 async def _user_id_for_customer(session, customer_id):
@@ -276,9 +283,13 @@ async def _apply_topup(session_obj: dict):
                 select(User.email).where(User.id == user_id)
             )).scalar_one_or_none()
 
+    amount_txt = ""
+    total = session_obj.get("amount_total")
+    if total:
+        amount_txt = f" ({_money(total, session_obj.get('currency'))})"
     from .alerts import send_admin_alert
     await send_admin_alert(
-        "💰 Top-up purchased",
+        f"💰 Top-up purchased{amount_txt}",
         f"{buyer_email or 'A user'} bought +{minutes} minutes.",
     )
 
@@ -422,3 +433,32 @@ async def _set_subscription_status_by_invoice(invoice_obj: dict, status: str, ev
     if not sub_id:
         return
     await _set_subscription_status({"id": sub_id}, status, event_created)
+
+
+async def _notify_invoice_paid(invoice_obj: dict):
+    """Real money-in alert: every paid invoice — first charge AND every monthly
+    renewal (renewals were previously silent). Includes the amount."""
+    amount = invoice_obj.get("amount_paid", 0)
+    if amount <= 0:                       # $0 invoices (e.g. legacy trial start)
+        return
+    money = _money(amount, invoice_obj.get("currency"))
+    reason = invoice_obj.get("billing_reason") or ""
+    kind = {
+        "subscription_create": "new subscription",
+        "subscription_cycle": "renewal",
+        "subscription_update": "plan change",
+    }.get(reason, reason or "payment")
+
+    email = None
+    async with database.session() as s:
+        cust = invoice_obj.get("customer")
+        if cust:
+            email = (await s.execute(
+                select(User.email).where(User.stripe_customer_id == cust)
+            )).scalar_one_or_none()
+
+    from .alerts import send_admin_alert
+    await send_admin_alert(
+        f"💵 Payment received: {money}",
+        f"{email or 'A customer'} — {kind}.",
+    )

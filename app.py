@@ -721,6 +721,8 @@ async def run_job_wrapper(job_id):
         await _track_proxy_usage(job_id)
         # Tell the owner their clips are ready (managed jobs, once per job).
         await _notify_clips_ready(job_id)
+        # Telegram pulse for high-signal activity (first clip / paid user).
+        await _notify_clip_activity(job_id)
         # Always release semaphore and mark queue task done
         concurrency_semaphore.release()
         job_queue.task_done()
@@ -788,6 +790,50 @@ async def _notify_clips_ready(job_id):
                                      _cloud_config.settings.frontend_url)
     except Exception as e:
         print(f"⚠️  Clips-ready email error for {job_id}: {e}")
+
+
+async def _notify_clip_activity(job_id):
+    """High-signal Telegram pulse when clips are created — NOT every clip (that
+    would drown the ops channel as free usage grows). Only:
+      * a user's very first clips (activation), and
+      * any paid user's clips.
+    Telegram-only (best effort, no email)."""
+    if not BILLING_ENABLED:
+        return
+    job = jobs.get(job_id) or {}
+    if not job.get('user_id') or job.get('status') != 'completed':
+        return
+    clips = (job.get('result') or {}).get('clips') or []
+    if not clips:
+        return
+    try:
+        from sqlalchemy import select, func, and_
+        from cloud.database import session as cloud_session
+        from cloud.models import User, UserVideo
+        from cloud import metering
+        async with cloud_session() as s:
+            user = await s.get(User, job['user_id'])
+            if not user:
+                return
+            sub = await metering._active_subscription(s, user.id)
+            # Clips from OTHER jobs (this job's are already archived by now).
+            prior = (await s.execute(
+                select(func.count(UserVideo.id)).where(and_(
+                    UserVideo.user_id == user.id, UserVideo.job_id != job_id,
+                ))
+            )).scalar_one()
+        plan = sub.plan if sub else "free"
+        is_paid = sub is not None
+        first_clip = prior == 0
+        if not (first_clip or is_paid):
+            return
+        title = clips[0].get('video_title_for_youtube_short') or clips[0].get('title') or "video"
+        n = len(clips)
+        tag = "🎬 First clips!" if first_clip else "🎬 Clips created"
+        await _alerts.send_telegram(
+            f"{tag}\n{user.email} ({plan}) — “{title}” ({n} clip{'s' if n != 1 else ''})")
+    except Exception as e:
+        print(f"⚠️  Clip-activity notify error for {job_id}: {e}")
 
 
 async def _record_job_alert(job_id):
