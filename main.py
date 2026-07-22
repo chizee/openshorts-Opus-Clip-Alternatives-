@@ -632,15 +632,26 @@ def download_youtube_video(url, output_dir="."):
     last_err = None
     used_proxy = False
     for label, ea, fmt, proxy in attempts:
-        try:
-            print(f"📥 Download attempt: {label}")
-            sanitized_title = _attempt(ea, fmt, proxy)
-            used_proxy = proxy is not None
-            print(f"✅ Download succeeded ({label}).")
+        # A 403 on the media fetch is usually transient: the googlevideo URL is
+        # bound to the IP that extracted it, and the residential proxy rotates
+        # its exit IP between requests. Retrying re-extracts and usually lands
+        # on a consistent IP (3 of 62 downloads hit this on 22-jul-2026).
+        for retry in range(2):
+            try:
+                print(f"📥 Download attempt: {label}" + (f" (retry {retry})" if retry else ""))
+                sanitized_title = _attempt(ea, fmt, proxy)
+                used_proxy = proxy is not None
+                print(f"✅ Download succeeded ({label}).")
+                break
+            except Exception as e:
+                last_err = e
+                print(f"⚠️  Download attempt '{label}' failed: {str(e)[:200]}")
+                retryable = '403' in str(e) or 'Forbidden' in str(e)
+                if not retryable or retry == 1:
+                    break
+                time.sleep(3)
+        if sanitized_title is not None:
             break
-        except Exception as e:
-            last_err = e
-            print(f"⚠️  Download attempt '{label}' failed: {str(e)[:200]}")
 
     if sanitized_title is None:
         import sys
@@ -998,29 +1009,32 @@ def _run_gemini_stage(client, model_name, prompt, schema):
         response_schema=schema,
     )
     max_attempts = 3
-    response = None
     for attempt in range(1, max_attempts + 1):
         try:
             response = client.models.generate_content(model=model_name, contents=prompt, config=config)
-            break
+            # Parsing lives inside the retry loop on purpose: Gemini sometimes
+            # returns 200 with an empty body, which raises here rather than at
+            # the call. Retrying that recovered every occurrence seen in prod
+            # (22-jul-2026) — the same payload succeeds on the next attempt.
+            parsed_obj = getattr(response, "parsed", None)
+            if parsed_obj is not None:
+                parsed = parsed_obj.model_dump() if hasattr(parsed_obj, "model_dump") else parsed_obj
+            else:
+                parsed = gemini_worker._parse_json_response_text(
+                    gemini_worker._get_response_text(response))
+            return parsed, gemini_worker._calculate_cost_analysis(response, model_name)
         except Exception as e:
             msg = str(e)
             transient = any(tok in msg for tok in (
                 '503', 'UNAVAILABLE', '429', 'RESOURCE_EXHAUSTED',
-                '500', 'INTERNAL', 'overloaded', 'Deadline'))
+                '500', 'INTERNAL', 'overloaded', 'Deadline',
+                'empty response body', 'did not contain a JSON object',
+                'Failed to parse Gemini JSON response'))
             if attempt == max_attempts or not transient:
                 raise
             wait = 5 * (2 ** (attempt - 1))
             print(f"⚠️ Gemini transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
             time.sleep(wait)
-
-    parsed_obj = getattr(response, "parsed", None)
-    if parsed_obj is not None:
-        parsed = parsed_obj.model_dump() if hasattr(parsed_obj, "model_dump") else parsed_obj
-    else:
-        parsed = gemini_worker._parse_json_response_text(gemini_worker._get_response_text(response))
-    cost = gemini_worker._calculate_cost_analysis(response, model_name)
-    return parsed, cost
 
 
 def get_viral_clips(transcript_result, video_duration):
@@ -1274,9 +1288,11 @@ if __name__ == '__main__':
             clips_data = get_visual_clips(input_video, duration)
 
         if not clips_data or 'shorts' not in clips_data:
-            print("❌ Failed to identify clips. Converting whole video as fallback.")
-            output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
-            render_clip(input_video, output_file, output_format)
+            # Deliberately fail instead of reframing the whole video: that path
+            # wrote no metadata.json, so app.py marked the job failed anyway
+            # (app.py:1087) after burning GPU on a render nobody could see.
+            raise RuntimeError(
+                "Clip detection failed — Gemini did not return usable clips for this video.")
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} clips!")
 

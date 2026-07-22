@@ -836,6 +836,26 @@ async def _notify_clip_activity(job_id):
         print(f"⚠️  Clip-activity notify error for {job_id}: {e}")
 
 
+# Markers that identify a line as an actual error rather than progress noise.
+_ERROR_MARKERS = ("❌", "ERROR:", "Traceback", "FATAL", "Exception",
+                  "Process failed with exit code", "No metadata file generated",
+                  "Execution error:")
+
+
+def _job_error_text(logs) -> str:
+    """The lines that explain WHY a job failed, for the alert's classifier.
+
+    The tail of the log is usually progress noise (scene detection, ffmpeg
+    banners), which made alerts blame whatever word happened to be nearby —
+    a silent upload got reported as a broken download path, and a Gemini blip
+    as an ffmpeg problem. Pick the error-bearing lines instead, newest last.
+    """
+    hits = [ln for ln in logs if any(m in ln for m in _ERROR_MARKERS)]
+    if not hits:
+        return " ".join(logs[-10:])  # nothing recognisable — fall back to the tail
+    return " ".join(hits[-6:])
+
+
 async def _record_job_alert(job_id):
     if not BILLING_ENABLED:
         return
@@ -843,7 +863,7 @@ async def _record_job_alert(job_id):
     if not job.get('user_id'):
         return  # only track managed jobs
     ok = job.get('status') == 'completed'
-    err = "" if ok else " ".join(job.get('logs', [])[-10:])
+    err = "" if ok else _job_error_text(job.get('logs', []))
     try:
         await _alerts.record_job_outcome(ok, err)
     except Exception as e:
