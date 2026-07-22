@@ -3,7 +3,7 @@ import re
 import subprocess
 import sys
 
-from ffmpeg_utils import video_encode_args, QUALITY
+from ffmpeg_utils import video_encode_args, QUALITY, METADATA_SCRUB
 
 
 _STDIO_CONFIGURED = False
@@ -491,6 +491,7 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
         '-vf', vf,
         '-c:a', 'copy',
         *video_encode_args(QUALITY),
+        *METADATA_SCRUB,
         '-movflags', '+faststart',
         output_path
     ]

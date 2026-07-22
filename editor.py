@@ -9,7 +9,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from edit_builder import build_filter_string
-from ffmpeg_utils import video_encode_args, QUALITY
+from ffmpeg_utils import video_encode_args, QUALITY, METADATA_SCRUB
 
 
 class EditDecision(BaseModel):
@@ -405,7 +405,8 @@ class VideoEditor:
         if not filter_data or not filter_data.get("filter_string"):
             print("⚠️ No filter string found. Copying original.")
             try:
-                subprocess.run(['ffmpeg', '-y', '-i', input_path, '-c', 'copy', output_path], timeout=1800)
+                subprocess.run(['ffmpeg', '-y', '-i', input_path, '-c', 'copy',
+                                *METADATA_SCRUB, output_path], timeout=1800)
             except subprocess.TimeoutExpired:
                 raise RuntimeError("FFmpeg copy timed out after 1800s.")
             return
@@ -474,6 +475,7 @@ class VideoEditor:
             '-vf', filter_string,
             *video_encode_args(QUALITY),
             '-c:a', 'copy',
+            *METADATA_SCRUB,
             '-movflags', '+faststart',
             output_path
         ]

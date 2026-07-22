@@ -6,7 +6,7 @@ import urllib.request
 import uuid
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from ffmpeg_utils import video_encode_args, QUALITY
+from ffmpeg_utils import video_encode_args, QUALITY, METADATA_SCRUB
 
 FONT_URL = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSerif/NotoSerif-Bold.ttf"
 FONT_DIR = "fonts"
@@ -366,6 +366,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
                 + (f":enable='between(t,0,{float(duration)})'" if duration else ""),
             '-c:a', 'copy',
             *video_encode_args(QUALITY),
+            *METADATA_SCRUB,
             '-movflags', '+faststart',
             output_path
         ]

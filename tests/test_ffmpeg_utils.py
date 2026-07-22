@@ -5,6 +5,7 @@ import pytest
 import ffmpeg_utils
 from ffmpeg_utils import (
     DELIVERY,
+    METADATA_SCRUB,
     QUALITY,
     QUALITY_FAST,
     reset_encoder_cache,
@@ -79,3 +80,19 @@ def test_returns_a_fresh_list_each_call():
     first = video_encode_args(QUALITY)
     first.append("-mutated")
     assert "-mutated" not in video_encode_args(QUALITY)
+
+
+def test_metadata_scrub_covers_global_and_per_stream():
+    # Global -map_metadata -1 alone leaves the audio handler_name intact on a
+    # stream copy — the per-stream specifiers are what strip YouTube's
+    # "produced by Google Inc." handler out of the published clip.
+    assert METADATA_SCRUB[:2] == ["-map_metadata", "-1"]
+    assert "-map_metadata:s:v" in METADATA_SCRUB
+    assert "-map_metadata:s:a" in METADATA_SCRUB
+
+
+def test_encode_args_stay_free_of_metadata_flags():
+    # The scrub is spliced at call sites, not baked into the codec args — keep
+    # video_encode_args a pure codec/quality list.
+    for tier in (QUALITY, QUALITY_FAST, DELIVERY):
+        assert not any(a.startswith("-map_metadata") for a in video_encode_args(tier))

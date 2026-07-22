@@ -42,6 +42,18 @@ _NVENC_ARGS = {
                "-pix_fmt", "yuv420p"],
 }
 
+# Output args that drop container/stream metadata carried over from the source
+# — most notably YouTube's "produced by Google Inc." stream handler, which
+# otherwise survives every re-encode (ffmpeg copies input metadata by default)
+# and rides into the published clip. The per-stream specifiers are required:
+# global -map_metadata -1 alone leaves the audio handler_name intact on a
+# stream copy. Empty audio/video specifiers are harmless when a clip lacks that
+# stream (ffmpeg ignores them, verified). Spliced in before the output filename
+# at each final-artifact producer; kept out of video_encode_args() so that
+# stays purely codec/quality args.
+METADATA_SCRUB = ["-map_metadata", "-1", "-map_chapters", "-1",
+                  "-map_metadata:s:v", "-1", "-map_metadata:s:a", "-1"]
+
 _probe_lock = threading.Lock()
 _nvenc_ok = None  # None = not probed yet
 _announced = False

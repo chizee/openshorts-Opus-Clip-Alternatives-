@@ -21,7 +21,7 @@ import os
 import subprocess
 import tempfile
 
-from ffmpeg_utils import video_encode_args, QUALITY_FAST
+from ffmpeg_utils import video_encode_args, QUALITY_FAST, METADATA_SCRUB
 
 ANALYSIS_MAX_WIDTH = 640
 
@@ -238,7 +238,7 @@ def render(input_video, final_output_video, aspect_ratio):
             "-f", "concat", "-safe", "0", "-i", list_path,
             "-i", input_video,
             "-map", "0:v:0", "-map", "1:a:0?",
-            "-c:v", "copy", "-c:a", "copy",
+            "-c:v", "copy", "-c:a", "copy", *METADATA_SCRUB,
             final_output_video,
         ])
     finally:

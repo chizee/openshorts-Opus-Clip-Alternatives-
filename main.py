@@ -22,7 +22,7 @@ from google.genai import types as genai_types
 
 import gemini_worker
 from clip_selection import build_transcript_windows, snap_clip_to_words
-from ffmpeg_utils import video_encode_args, QUALITY, QUALITY_FAST
+from ffmpeg_utils import video_encode_args, QUALITY, QUALITY_FAST, METADATA_SCRUB
 from dotenv import load_dotenv
 import json
 
@@ -696,7 +696,7 @@ def finalize_clip_passthrough(input_video, final_output_video):
     print(f"🎬 Passthrough (native framing): {input_video}")
     cmd = [
         'ffmpeg', '-y', '-i', input_video,
-        '-c', 'copy', '-movflags', '+faststart',
+        '-c', 'copy', *METADATA_SCRUB, '-movflags', '+faststart',
         final_output_video,
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1800)
@@ -764,7 +764,7 @@ def apply_watermark(video_path):
     tmp_path = video_path + ".wm.mp4"
     cmd = ["ffmpeg", "-y", "-i", video_path, "-i", logo_path,
            "-filter_complex", filt,
-           *video_encode_args(QUALITY), "-c:a", "copy",
+           *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
            "-movflags", "+faststart", tmp_path]
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             timeout=1800)
@@ -965,12 +965,12 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
     if os.path.exists(temp_audio_output):
         merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output, '-i', temp_audio_output,
-            '-c:v', 'copy', '-c:a', 'copy', final_output_video
+            '-c:v', 'copy', '-c:a', 'copy', *METADATA_SCRUB, final_output_video
         ]
     else:
          merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output,
-            '-c:v', 'copy', final_output_video
+            '-c:v', 'copy', *METADATA_SCRUB, final_output_video
         ]
         
     try:
