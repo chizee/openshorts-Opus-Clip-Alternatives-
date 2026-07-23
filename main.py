@@ -965,12 +965,14 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
     if os.path.exists(temp_audio_output):
         merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output, '-i', temp_audio_output,
-            '-c:v', 'copy', '-c:a', 'copy', *METADATA_SCRUB, final_output_video
+            '-c:v', 'copy', '-c:a', 'copy', *METADATA_SCRUB,
+            '-movflags', '+faststart', final_output_video
         ]
     else:
          merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output,
-            '-c:v', 'copy', *METADATA_SCRUB, final_output_video
+            '-c:v', 'copy', *METADATA_SCRUB,
+            '-movflags', '+faststart', final_output_video
         ]
         
     try:

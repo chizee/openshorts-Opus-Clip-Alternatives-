@@ -239,6 +239,11 @@ def render(input_video, final_output_video, aspect_ratio):
             "-i", input_video,
             "-map", "0:v:0", "-map", "1:a:0?",
             "-c:v", "copy", "-c:a", "copy", *METADATA_SCRUB,
+            # +faststart moves the moov atom to the front so the browser <video>
+            # can start playing before the whole file downloads. Without it the
+            # in-app preview spins forever (download still works) — the moov
+            # lands at the end of a plain concat.
+            "-movflags", "+faststart",
             final_output_video,
         ])
     finally:
