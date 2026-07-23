@@ -248,6 +248,38 @@ def _parse_json_response_text(text: str) -> dict:
     raise ValueError(f"Failed to parse Gemini JSON response: {last_error}")
 
 
+class GeminiBlockedError(ValueError):
+    """The API refused the request for content-policy reasons.
+
+    Deterministic: the same payload is rejected every time (verified in prod,
+    23-jul-2026 — a stand-up video came back PROHIBITED_CONTENT in ~300ms on
+    every attempt), and BLOCK_NONE safety settings do NOT lift it. Retrying is
+    pointless, so callers must fail fast with a message that tells the user the
+    video's content is the problem, not the service."""
+
+
+_BLOCKED_FINISH_REASONS = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST",
+                           "SPII", "IMAGE_SAFETY", "RECITATION"}
+
+
+def raise_if_blocked(response):
+    """Raise GeminiBlockedError when the API refused to answer on policy grounds."""
+    pf = getattr(response, "prompt_feedback", None)
+    reason = getattr(pf, "block_reason", None)
+    if reason:
+        name = getattr(reason, "name", None) or str(reason)
+        raise GeminiBlockedError(
+            f"Gemini blocked this video's content ({name}). The AI provider's "
+            "usage policies reject this material, so it can't be analyzed.")
+    for c in (getattr(response, "candidates", None) or []):
+        fr = getattr(c, "finish_reason", None)
+        name = (getattr(fr, "name", None) or str(fr or "")).upper()
+        if name in _BLOCKED_FINISH_REASONS:
+            raise GeminiBlockedError(
+                f"Gemini blocked its answer for this video ({name}). The AI "
+                "provider's usage policies reject this material, so it can't be analyzed.")
+
+
 def _get_response_text(response) -> str:
     try:
         text = response.text

@@ -86,3 +86,61 @@ def test_succeeds_without_retrying_when_the_first_call_is_fine():
     models = _FakeModels(blips=0)
     main._run_gemini_stage(_client(models), "m", "prompt", object)
     assert models.calls == 1
+
+
+class _BlockedResponse:
+    """Mimics the real prod shape: 200, empty candidates, block_reason set."""
+    text = ""
+    candidates = []
+    usage_metadata = None
+
+    class _PF:
+        class _Reason:
+            name = "PROHIBITED_CONTENT"
+        block_reason = _Reason()
+
+    prompt_feedback = _PF()
+
+
+def test_policy_block_fails_fast_without_retrying():
+    # Prod 23-jul-2026: PROHIBITED_CONTENT is deterministic — 3 retries just
+    # burned quota and reported a misleading "empty response body".
+    class _Models:
+        calls = 0
+
+        def generate_content(self, **kwargs):
+            _Models.calls += 1
+            return _BlockedResponse()
+
+    import gemini_worker
+    with pytest.raises(gemini_worker.GeminiBlockedError) as exc:
+        main._run_gemini_stage(_client(_Models()), "m", "prompt", object)
+    assert _Models.calls == 1
+    assert "PROHIBITED_CONTENT" in str(exc.value)
+
+
+def test_blocked_finish_reason_also_raises():
+    import gemini_worker
+
+    class _Cand:
+        class _FR:
+            name = "SAFETY"
+        finish_reason = _FR()
+        content = None
+
+    class _Resp:
+        prompt_feedback = None
+        candidates = [_Cand()]
+
+    with pytest.raises(gemini_worker.GeminiBlockedError):
+        gemini_worker.raise_if_blocked(_Resp())
+
+
+def test_clean_response_is_not_flagged_as_blocked():
+    import gemini_worker
+
+    class _Resp:
+        prompt_feedback = None
+        candidates = []
+
+    gemini_worker.raise_if_blocked(_Resp())  # must not raise

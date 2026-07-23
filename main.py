@@ -1014,6 +1014,10 @@ def _run_gemini_stage(client, model_name, prompt, schema):
     for attempt in range(1, max_attempts + 1):
         try:
             response = client.models.generate_content(model=model_name, contents=prompt, config=config)
+            # Policy blocks are deterministic — retrying only burns quota and
+            # time, and the user deserves the real reason instead of a generic
+            # "empty response" (prod 23-jul: PROHIBITED_CONTENT on every try).
+            gemini_worker.raise_if_blocked(response)
             # Parsing lives inside the retry loop on purpose: Gemini sometimes
             # returns 200 with an empty body, which raises here rather than at
             # the call. Retrying that recovered every occurrence seen in prod
@@ -1025,6 +1029,8 @@ def _run_gemini_stage(client, model_name, prompt, schema):
                 parsed = gemini_worker._parse_json_response_text(
                     gemini_worker._get_response_text(response))
             return parsed, gemini_worker._calculate_cost_analysis(response, model_name)
+        except gemini_worker.GeminiBlockedError:
+            raise  # deterministic policy block — never retry
         except Exception as e:
             msg = str(e)
             transient = any(tok in msg for tok in (
@@ -1127,6 +1133,11 @@ def get_viral_clips(transcript_result, video_duration):
         if cost_analysis:
             result["cost_analysis"] = cost_analysis
         return result
+    except gemini_worker.GeminiBlockedError as e:
+        # Content-policy rejection: propagate so the job fails with the real
+        # reason instead of a generic "no clips found".
+        print(f"🚫 {e}")
+        raise
     except Exception as e:
         print(f"❌ Gemini Error: {e}")
         return None
@@ -1170,6 +1181,7 @@ def get_visual_clips(video_path, video_duration, language="en"):
         )
         response = client.models.generate_content(
             model=model_name, contents=[file_upload, prompt], config=config)
+        gemini_worker.raise_if_blocked(response)
         parsed = json.loads(response.text)
         shorts = parsed.get("shorts") or []
         # Clamp to the real duration; drop anything degenerate.
@@ -1190,6 +1202,9 @@ def get_visual_clips(video_path, video_duration, language="en"):
         if cost:
             result["cost_analysis"] = cost
         return result
+    except gemini_worker.GeminiBlockedError as e:
+        print(f"🚫 {e}")
+        raise
     except Exception as e:
         print(f"❌ Gemini vision error: {e}")
         return None

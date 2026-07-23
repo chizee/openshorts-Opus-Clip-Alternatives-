@@ -32,3 +32,9 @@ def test_ffmpeg():
 
 def test_unknown_is_mixed():
     assert _classify_failure("something weird happened") == "mixed"
+
+
+def test_blocked_content_is_not_reported_as_outage():
+    assert _classify_failure(
+        "🚫 Gemini blocked this video's content (PROHIBITED_CONTENT)."
+    ) == "blocked content (user video)"

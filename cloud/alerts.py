@@ -52,6 +52,10 @@ def _classify_failure(err: str) -> str:
         return "youtube download"
     if "whisper" in e or "faster_whisper" in e or "transcrib" in e or "av/container" in e:
         return "transcription"
+    # User content rejected by the AI provider's policy filter — deterministic,
+    # not actionable on our side. Named so the alert doesn't read as an outage.
+    if "prohibited_content" in e or "blocked this video" in e or "blocked its answer" in e:
+        return "blocked content (user video)"
     if "gemini" in e or "google.genai" in e:
         return "gemini"
     if "ffmpeg" in e or "reframe" in e:
