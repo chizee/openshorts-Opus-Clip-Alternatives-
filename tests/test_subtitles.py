@@ -205,3 +205,37 @@ class TestGenerateAss:
                             font_color="#FFFFFF", base_opacity=1.0) is True
         content = out.read_text(encoding="utf-8-sig")
         assert "&H00FFFFFF" in content  # pure white, no dimming
+
+
+class TestBurnFilterFonts:
+    """The ffmpeg filter must point libass at the bundled fonts dir — without
+    it every UI font choice silently falls back to DejaVu (issue #57)."""
+
+    def _captured_cmd(self, monkeypatch, tmp_path, srt_name):
+        import subtitles as m
+        captured = {}
+
+        class _Ok:
+            returncode = 0
+            stderr = b""
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return _Ok()
+
+        monkeypatch.setattr(m.subprocess, "run", fake_run)
+        srt = tmp_path / srt_name
+        srt.write_text("stub", encoding="utf-8")
+        m.burn_subtitles("in.mp4", str(srt), "out.mp4", font_name="Impact")
+        return " ".join(str(c) for c in captured["cmd"])
+
+    def test_srt_filter_includes_fontsdir(self, monkeypatch, tmp_path):
+        cmd = self._captured_cmd(monkeypatch, tmp_path, "subs.srt")
+        assert "fontsdir=" in cmd
+        assert "force_style=" in cmd
+
+    def test_ass_filter_includes_fontsdir(self, monkeypatch, tmp_path):
+        cmd = self._captured_cmd(monkeypatch, tmp_path, "subs.ass")
+        assert "fontsdir=" in cmd
+        # ASS carries its own styles; force_style must NOT override them
+        assert "force_style" not in cmd

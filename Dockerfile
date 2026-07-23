@@ -35,7 +35,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install FFmpeg, OpenCV deps, Node.js + npm + git (for yt-dlp JS + bgutil build)
+# Install FFmpeg, OpenCV deps, Node.js + npm + git (for yt-dlp JS + bgutil build).
+# fontconfig + fonts-liberation back the subtitle font choices: without real
+# fonts libass falls back to DejaVu for every UI option (issue #57).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -46,6 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
     git \
+    fontconfig \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Deno JS runtime — required by yt-dlp for some extractor challenges.
@@ -76,6 +80,13 @@ RUN pip install --upgrade --pre --no-cache-dir "yt-dlp[default]" bgutil-ytdlp-po
 
 # Copy application code
 COPY . .
+
+# Register the bundled fonts (Anton for Impact) and the UI-name -> real-font
+# aliases with fontconfig so libass resolves what the subtitle modal offers.
+RUN mkdir -p /usr/local/share/fonts/openshorts \
+    && cp fonts/*.ttf /usr/local/share/fonts/openshorts/ \
+    && cp fonts/openshorts-fontmap.conf /etc/fonts/conf.d/60-openshorts.conf \
+    && fc-cache -f
 
 # Create a non-root user (Moved up)
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser

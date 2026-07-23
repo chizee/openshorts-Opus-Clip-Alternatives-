@@ -478,12 +478,18 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
         f"Bold=1"
     )
 
+    # Let libass see the fonts bundled with the app (e.g. Anton for Impact)
+    # even when the system fontconfig has no cache for them.
+    fonts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+    safe_fonts_dir = _escape_ffmpeg_filter_value(fonts_dir)
+
     if str(srt_path).lower().endswith('.ass'):
         # ASS files (karaoke style) carry their own styles; force_style would
         # override the per-word color tags.
-        vf = f"ass='{safe_srt_path}'"
+        vf = f"ass='{safe_srt_path}':fontsdir='{safe_fonts_dir}'"
     else:
-        vf = f"subtitles='{safe_srt_path}':charenc=UTF-8:force_style='{style_string}'"
+        vf = (f"subtitles='{safe_srt_path}':fontsdir='{safe_fonts_dir}'"
+              f":charenc=UTF-8:force_style='{style_string}'")
 
     cmd = [
         'ffmpeg', '-y',
