@@ -25,7 +25,7 @@ every copy within 30 days — this script is what makes both sentences true.
 ### Install
 
 ```bash
-# On the database host (balrog), as root:
+# On the database host (el servidor de la base de datos), as root:
 apt-get install -y postgresql-client age awscli        # or gnupg instead of age
 install -m 0750 ops/pg_backup.sh /opt/openshorts/ops/pg_backup.sh
 ```

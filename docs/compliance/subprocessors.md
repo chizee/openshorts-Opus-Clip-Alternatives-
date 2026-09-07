@@ -77,7 +77,7 @@ Nada de esto se puede hacer desde el repositorio; queda para el responsable:
 3. **Verificar la jurisdicción del bucket R2** (debe ser UE) y la región de S3.
 4. **Identificar al proveedor de proxies estáticos** y el país de DataImpulse,
    y firmar CCT si están fuera del EEE.
-5. **Confirmar dónde están físicamente `balrog` y `onepiece`.** La política dice
+5. **Confirmar dónde están físicamente los dos servidores de producción.** La política dice
    "Hetzner y Contabo, Alemania"; si alguno es hardware propio fuera de un CPD,
    hay que decirlo y aplicar cifrado de disco.
 6. **Comprobar que la política de Upload-Post** describe la custodia de tokens
