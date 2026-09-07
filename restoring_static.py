@@ -22,14 +22,38 @@ from starlette.exceptions import HTTPException
 from starlette.staticfiles import StaticFiles
 
 Restorer = Callable[[str], Awaitable[bool]]
+Guard = Callable[[str], bool]
 
 
 class RestoringStaticFiles(StaticFiles):
-    def __init__(self, *args, restorer: Optional[Restorer] = None, **kwargs):
+    """StaticFiles that can restore a missing job, and refuses non-deliverables.
+
+    ``guard`` is the allowlist (``media_auth.is_servable``). Without it this
+    mount hands out the whole working directory to anyone holding the job id:
+    ``.owner`` (a user uuid), ``.resume.json`` (the customer's own
+    ``webhook_secret``), ``.transcript_checkpoint.json``, and the
+    ``*_metadata.json`` carrying the full transcript of the user's video.
+    Verified served, unauthenticated, on 7-sep-2026.
+
+    This is only the path half of media_auth: the clips themselves, and the
+    untouched source video sitting in the same directory, are still public to
+    anyone who has the job id. Closing that needs the capability tokens the
+    module was written for, which is a bigger change (request handlers, an
+    /api/media-token endpoint, and the dashboard appending the token to every
+    media URL) and must ship with its frontend half.
+    """
+
+    def __init__(self, *args, restorer: Optional[Restorer] = None,
+                 guard: Optional[Guard] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.restorer = restorer
+        self.guard = guard
 
     async def get_response(self, path: str, scope):
+        # Before the filesystem: a refused path must look exactly like a
+        # missing one, or the 404-vs-403 difference confirms the file is there.
+        if self.guard is not None and not self.guard(path):
+            raise HTTPException(status_code=404)
         try:
             return await super().get_response(path, scope)
         except HTTPException as exc:

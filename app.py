@@ -1734,8 +1734,10 @@ app.add_middleware(
 # of a reopened project used to 404 while the transcript requests were still
 # restoring it. Late-bound lambda: the restorer is defined further down.
 from restoring_static import RestoringStaticFiles
+import media_auth
 app.mount("/videos", RestoringStaticFiles(
     directory=OUTPUT_DIR,
+    guard=media_auth.is_servable,
     restorer=lambda job_id: _restore_for_public_path(job_id)), name="videos")
 
 # Mount static files for serving thumbnails
