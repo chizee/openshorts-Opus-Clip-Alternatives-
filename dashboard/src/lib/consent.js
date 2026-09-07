@@ -116,7 +116,8 @@ export function setConsent(choice) {
     v: VERSION,
     ts: new Date().toISOString(),
     necessary: true,
-    analytics: !!choice.analytics,
+    // First-party measurement is always on (exempt); only marketing is a choice.
+    analytics: true,
     marketing: !!choice.marketing,
   };
   try {
@@ -125,12 +126,7 @@ export function setConsent(choice) {
 
   listeners.forEach((fn) => { try { fn(getConsent()); } catch (_) { /* ignore */ } });
 
-  if (next.analytics && !before.analytics) {
-    applyConsent();
-  } else if (!next.analytics && before.analytics) {
-    try { window.op && window.op('clear'); } catch (_) { /* ignore */ }
-    try { window.location.reload(); } catch (_) { /* ignore */ }
-  }
+  applyConsent();
   return getConsent();
 }
 
