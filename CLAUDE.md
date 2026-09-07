@@ -273,6 +273,13 @@ portrait clip cannot reproduce the shrink either.
   back into this same app in-process (`httpx.ASGITransport`) forwarding the
   caller's auth headers, so it can never drift from the REST behavior. Cloud
   mode 401s without a resolvable user; self-host stays BYOK-open.
+- **stdio transport** (`mcp_stdio.py`): the same `handle_message` / `call_tool`
+  as a subprocess, for hosts that only launch MCP servers as a command (Glama's
+  Dockerfile deployments wrap one; a local client can skip the web server).
+  Two invariants: `sys.stdout` is swapped for stderr **before `app` is
+  imported**, because the pipeline prints everywhere and one stray line
+  corrupts the JSON-RPC stream; and the app's lifespan is entered
+  (`router.lifespan_context`), which `ASGITransport` does not do on its own.
 - **OAuth for MCP clients** (`cloud/mcp_oauth.py`, cloud mode only): claude.ai
   and ChatGPT connect by URL, so the server publishes RFC 9728/8414 metadata
   under `/.well-known/`, accepts dynamic client registration (`POST

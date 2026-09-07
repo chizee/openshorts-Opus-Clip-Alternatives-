@@ -344,6 +344,9 @@ claude mcp add --transport http openshorts https://mcp.openshorts.app/mcp \
 
 # Self-hosted (no key needed, BYOK rules apply):
 claude mcp add --transport http openshorts http://localhost:8000/mcp
+
+# Self-hosted without running the web server: same tools over stdio
+claude mcp add openshorts -- python mcp_stdio.py
 ```
 
 Tools: `process_video` (URL or `upload_id`; `captions: false` when the source already has subtitles, `auto_hook: false` to skip the hook line, burned by default like the dashboard), `create_upload` (hand the agent a local file: PUT the bytes, then process), `get_job_status`, `list_clips`, `get_quota`, `add_subtitles`, `recut_clip`, `publish_clip`. A prompt like *"clip this podcast and schedule the best 3 to TikTok"* is now a one-liner in your agent of choice.
