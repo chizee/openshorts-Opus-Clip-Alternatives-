@@ -1,5 +1,4 @@
 import React from 'react';
-import { openConsentManager } from './lib/consent';
 import { Sparkles, Zap, Globe, FileVideo, Subtitles, Youtube, Instagram, Shield, Github, ArrowRight, Check, ChevronDown, Monitor, Cpu, Languages, Type, Upload, Scissors, Link2, Bot } from 'lucide-react';
 import PricingSection from './components/PricingSection';
 import { useAuth } from './contexts/AuthContext';
@@ -800,8 +799,6 @@ export default function Landing({ onLaunchApp }) {
               <a href="/legal-notice" className="hover:text-ink transition-colors whitespace-nowrap">Legal Notice</a>
               <a href="/refunds" className="hover:text-ink transition-colors whitespace-nowrap">Refunds</a>
               <a href="/report-content" className="hover:text-ink transition-colors whitespace-nowrap">Report Content</a>
-              {/* Withdrawing consent has to be as easy as giving it (GDPR art. 7.3). */}
-              <button type="button" onClick={openConsentManager} className="hover:text-ink transition-colors whitespace-nowrap lowercase">Cookies</button>
             </div>
           </div>
         </div>
