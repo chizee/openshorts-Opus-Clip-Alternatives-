@@ -148,6 +148,16 @@ class Settings:
         return os.environ.get("FRONTEND_URL", "https://openshorts.app").rstrip("/")
 
     @property
+    def public_api_url(self) -> str:
+        """Absolute base of this API as the internet sees it.
+
+        Needed by anything that has to put a working API link inside a message
+        that leaves the browser — the unsubscribe link in an email, for one.
+        Same variable app.py uses for the webhook payload's absolute URLs.
+        """
+        return os.environ.get("PUBLIC_API_URL", "").rstrip("/")
+
+    @property
     def allowed_origins(self) -> list:
         raw = os.environ.get("ALLOWED_ORIGINS", "")
         origins = [o.strip() for o in raw.split(",") if o.strip()]

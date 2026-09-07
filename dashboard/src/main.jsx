@@ -7,6 +7,8 @@ import { capture as captureAttribution } from './lib/attribution'
 import PricingPage from './components/PricingPage'
 import AccountPage from './components/AccountPage'
 import LoginModal from './components/LoginModal'
+import { applyConsent } from './lib/consent'
+import CookieBanner from './components/CookieBanner'
 
 const App = lazy(() => import('./App.jsx'))
 const Legal = lazy(() => import('./Legal.jsx'))
@@ -113,12 +115,17 @@ function Root() {
 // would destroy the referrer and any UTM params we still need to read.
 captureAttribution();
 
+// Start whatever the visitor previously agreed to. Nothing at all on a first
+// visit: index.html only publishes the analytics initialiser, it never runs it.
+applyConsent();
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AuthProvider>
       <Suspense fallback={<div className="min-h-screen bg-paper flex items-center justify-center text-muted text-sm lowercase">loading…</div>}>
         <Root />
       </Suspense>
+      <CookieBanner />
     </AuthProvider>
   </StrictMode>,
 )

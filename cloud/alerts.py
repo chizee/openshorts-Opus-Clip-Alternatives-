@@ -82,6 +82,20 @@ def _cooldown_ok(kind: str) -> bool:
 TELEGRAM_PREFIX = "OPENSHORTS ✂️ - "
 
 
+def user_ref(user_id) -> str:
+    """How a user is named in an operational alert: never by email address.
+
+    These alerts go to Telegram, whose Bot API is operated from outside the EEA
+    with no adequacy decision and no DPA available to us — so the messages must
+    not carry personal data. They used to read "alice@example.com bought +60
+    minutes". The first 8 hex of the account uuid is enough for the operator to
+    find the row (``select * from users where id::text like '3f9a1c2b%'``) and
+    is not, on its own, an identifier of a person to anyone reading the chat.
+    """
+    ref = str(user_id or "").replace("-", "")
+    return f"user {ref[:8]}" if ref else "a user"
+
+
 async def send_telegram(text: str, *, raise_errors: bool = False):
     """Push a plain-text message to the admin's Telegram chat. No-op if unset.
 

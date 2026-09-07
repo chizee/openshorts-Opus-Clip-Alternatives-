@@ -1,3 +1,5 @@
+import { allows } from './consent';
+
 // Lightweight custom-event helper (OpenPanel).
 //
 // The hosted openshorts.app build loads OpenPanel (see index.html), which
@@ -28,6 +30,9 @@
 // Prices ride along as ordinary props (e.g. value_usd) for breakdowns.
 export function track(event, options) {
   try {
+    // `op` is a queueing stub until consent loads op1.js, so a call made before
+    // the visitor accepted would be flushed the moment they did. Check first.
+    if (!allows('analytics')) return;
     if (typeof window !== 'undefined' && typeof window.op === 'function') {
       window.op('track', event, (options && options.props) || {});
     }
@@ -45,9 +50,16 @@ export function track(event, options) {
  */
 export function identify(user, props) {
   try {
+    if (!allows('analytics')) return;
     if (!user || !user.id) return;
     if (typeof window !== 'undefined' && typeof window.op === 'function') {
-      window.op('identify', { profileId: String(user.id), email: user.email, ...(props || {}) });
+      // profileId only. The email used to ride along here, which put a direct
+      // identifier of every signed-in user into the analytics store and made
+      // both the privacy policy ("no third-party trackers", "aggregate
+      // measurement") and the deletion notice ("OpenPanel never received the
+      // address") untrue. The uuid is enough to join a sale to a first visit,
+      // and it is the same id the server-side events already use.
+      window.op('identify', { profileId: String(user.id), ...(props || {}) });
     }
   } catch (_) {
     /* analytics must never throw into the app */
