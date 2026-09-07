@@ -1381,7 +1381,15 @@ async def _notify_clip_activity(job_id):
 # alerts with a bare "Traceback ... exit code 1" and no cause (prod 20-ago).
 _ERROR_MARKERS = ("❌", "ERROR:", "Error:", "Traceback", "FATAL", "Exception",
                   "Process failed with exit code", "No metadata file generated",
-                  "Execution error:")
+                  "Execution error:",
+                  # A clip render dies in two steps: reframe_v2 raises (it has
+                  # no False return, only `return True`), main.py prints this
+                  # and falls back to the v1 loop, and only if v1 ALSO fails
+                  # does "❌ Clip N failed" appear. The ❌ line then carries
+                  # v1's exception, not the one that started it, so without
+                  # this marker the alert names the fallback and hides the
+                  # cause. Both lines are wanted.
+                  "Reframe v2 failed")
 
 
 def _job_error_text(logs) -> str:
