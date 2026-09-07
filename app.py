@@ -500,6 +500,50 @@ def _canonical_clip_file(output_dir, base_name, index):
     return os.path.basename(max(derived, key=os.path.getmtime))
 
 
+def _clips_actually_rendered(job_id, output_dir, base_name, clips):
+    """Keep only the clips whose file is really on disk. Returns (kept, missing).
+
+    The metadata JSON is written BEFORE any clip renders, and main.py's worker
+    pool swallows a per-clip exception (it only prints "❌ Clip N failed") and
+    still exits 0. So ``shorts`` is what Gemini promised, not what ffmpeg
+    produced, and ``_canonical_clip_file`` happily returns the name of a file
+    that was never written.
+
+    Handing those back as delivered clips is what let a job that rendered
+    NOTHING be marked completed: the minutes were committed, ClipsDelivered
+    fired, ``archive_job`` skipped every missing file and uploaded the metadata
+    alone — which, because it returns before writing the Project row, left the
+    job unrestorable and invisible in history — and the dashboard offered clips
+    whose only existence was a title, so "download all" answered 404 "No clip
+    files found for this job" (ticket #4711, job 89d76bbc, 6-sep-2026).
+    Measured over the R2 archive on 7-sep-2026: 195 of 1687 archived jobs held
+    a metadata file and not one clip, across 184 users.
+
+    Trust the disk, not the promise.
+    """
+    # main.py announces the file it actually finished for each clip
+    # (CLIP_READY, printed after the whole reframe/watermark/hook/caption
+    # chain). Prefer it over rebuilding the name: the marker is what the file
+    # IS, _canonical_clip_file is a guess from the naming convention.
+    ready_files = (jobs.get(job_id) or {}).get('ready_files') or {}
+    kept = []
+    for i, clip in enumerate(clips):
+        clip_filename = (ready_files.get(i)
+                         or _canonical_clip_file(output_dir, base_name, i))
+        clip_path = os.path.join(output_dir, clip_filename)
+        try:
+            present = os.path.getsize(clip_path) > 0
+        except OSError:
+            present = False
+        if not present:
+            print(f"⚠️  Clip {i + 1} of {job_id} never rendered "
+                  f"({clip_filename}) — dropping it from the result.")
+            continue
+        clip['video_url'] = f"/videos/{job_id}/{clip_filename}"
+        kept.append(clip)
+    return kept, len(clips) - len(kept)
+
+
 def _strip_burned_captions(output_dir, filename):
     """Walk ``subtitled_<ts>_`` prefixes back to the file without burned captions.
 
@@ -1898,11 +1942,19 @@ async def run_job(job_id, job_data):
                 clips = data.get('shorts', [])
                 cost_analysis = data.get('cost_analysis')
 
-                for i, clip in enumerate(clips):
-                     clip_filename = _canonical_clip_file(output_dir, base_name, i)
-                     clip['video_url'] = f"/videos/{job_id}/{clip_filename}"
-                
-                jobs[job_id]['result'] = {'clips': clips, 'cost_analysis': cost_analysis}
+                rendered, missing = _clips_actually_rendered(
+                    job_id, output_dir, base_name, clips)
+                if not rendered:
+                    # Nothing to hand over: fail the job so _settle_reservation
+                    # releases the minutes instead of committing them.
+                    jobs[job_id]['status'] = 'failed'
+                    jobs[job_id]['logs'].append(
+                        "No clips could be rendered from this video.")
+                else:
+                    if missing:
+                        jobs[job_id]['logs'].append(
+                            f"⚠️ {missing} of {len(clips)} clips failed to render.")
+                    jobs[job_id]['result'] = {'clips': rendered, 'cost_analysis': cost_analysis}
             else:
                  jobs[job_id]['status'] = 'failed'
                  jobs[job_id]['logs'].append("No metadata file generated.")
