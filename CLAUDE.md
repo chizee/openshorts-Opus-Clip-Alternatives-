@@ -432,3 +432,8 @@ container before stopping the old one (rolling update) and both share
 
 Before pushing, still batch small commits (tests, docs) with the next real
 change: every deploy is a ~5 min build plus a handover.
+
+## CI: a green pipeline closes the task, not the push
+- After every `git push`, wait for the commit's workflow and confirm it is green: `ci-wait` (Victor's Mac) or `gh run watch $(gh run list -c $(git rev-parse HEAD) -L1 --json databaseId -q ".[0].databaseId") --exit-status`.
+- If it is red: fix, push, check again. Never report the task as done with a red CI.
+- Before pushing, run locally what the CI runs (lint + tests of this repo).
