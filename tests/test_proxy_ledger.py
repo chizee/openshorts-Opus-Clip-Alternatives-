@@ -288,7 +288,17 @@ class TestStaticProbeAgainstYouTube:
         monkeypatch.setenv("PROXY_URL", "http://paid")
         alerts, _ = self._client(monkeypatch, body="<html>consent page</html>")
         ok, detail = asyncio.run(alerts._probe_one("http://static1"))
-        assert not ok and "flagged" in detail
+        assert not ok and "not playable" in detail
+
+    def test_the_detail_names_what_youtube_said(self, monkeypatch):
+        """"IP flagged" blamed the IP for every miss. LOGIN_REQUIRED with
+        cookies configured is an expired session, not a banned address."""
+        monkeypatch.setenv("PROXY_URL", "http://paid")
+        alerts, _ = self._client(
+            monkeypatch,
+            body='{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"x"}}')
+        ok, detail = asyncio.run(alerts._probe_one("http://static1"))
+        assert not ok and "LOGIN_REQUIRED" in detail
 
     def test_paid_probe_keeps_the_cheap_http_204(self, monkeypatch):
         monkeypatch.setenv("PROXY_URL", "http://paid")

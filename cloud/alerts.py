@@ -200,6 +200,62 @@ _PROXY_PROBE_URL = "http://www.google.com/generate_204"
 # through the statics are flat-rate, so the ~600 KB page is free.
 _STATIC_PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 _STATIC_OK_MARKERS = ('"playabilityStatus"', '"status":"OK"')
+# The probe has to ask the way the DOWNLOAD asks, or it measures a question
+# nobody in production is asking. Anonymously, a datacenter IP making ~400
+# YouTube hits a day is rate-limited into "Sign in to confirm you're not a
+# bot" — playabilityStatus comes back LOGIN_REQUIRED — while the very same IP
+# serves every real download fine, because those carry these cookies.
+# Measured 8-sep-2026 on all three statics: anonymous LOGIN_REQUIRED, with
+# cookies OK, while proxy_usage showed 119 YouTube jobs on HD-static1 in 24 h
+# and zero paid bytes. Without this the watcher cries wolf every 2 h and the
+# alert tells you money is burning when none is.
+_static_cookie_jar = None
+_static_cookie_src = None
+
+
+def _probe_cookies():
+    """The download's YOUTUBE_COOKIES as a jar httpx can send, or None.
+
+    Parsed once and cached (the probe runs every 30 minutes). Never logged:
+    the blob is a live YouTube session.
+    """
+    global _static_cookie_jar, _static_cookie_src
+    raw = os.environ.get("YOUTUBE_COOKIES", "")
+    if not raw:
+        return None
+    if raw == _static_cookie_src:
+        return _static_cookie_jar
+    jar = None
+    try:
+        import tempfile
+        from http.cookiejar import MozillaCookieJar
+        # Pre-validate: handed a blob that is not a cookie file, the stdlib
+        # prints "http.cookiejar bug!" with a traceback before raising. That
+        # would land in the container log every 30 minutes, so recognise the
+        # shape ourselves (a Netscape record is 7 tab-separated fields).
+        if not any(len(ln.split("\t")) == 7
+                   for ln in raw.splitlines() if ln and not ln.startswith("#")):
+            raise ValueError("not a Netscape cookie file")
+        body = raw if raw.lstrip().startswith("# Netscape") else \
+            "# Netscape HTTP Cookie File\n" + raw
+        path = os.path.join(tempfile.mkdtemp(), "yt_cookies.txt")
+        with open(path, "w") as fh:
+            fh.write(body if body.endswith("\n") else body + "\n")
+        jar = MozillaCookieJar(path)
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except Exception as e:
+        print(f"\u26a0\ufe0f  Static probe could not read YOUTUBE_COOKIES ({type(e).__name__}); "
+              f"probing anonymously, which YouTube bot-checks.")
+        jar = None
+    _static_cookie_src, _static_cookie_jar = raw, jar
+    return jar
+
+
+def _playability(body):
+    """The playabilityStatus value in a watch page, for the alert detail."""
+    import re as _re
+    m = _re.search(r'"playabilityStatus":\{"status":"([A-Z_]+)"', body or "")
+    return m.group(1) if m else "no player response"
 _PROXY_STRIKES = 2                  # consecutive failed probes before alerting
 _watch_down = {}                    # target name -> down-since epoch
 _watch_nag = {}                     # target name -> last-nag epoch
@@ -234,7 +290,12 @@ async def _probe_one(proxy):
     is_paid = proxy == os.environ.get("PROXY_URL", "").strip()
     try:
         import httpx
-        async with httpx.AsyncClient(proxy=proxy, timeout=20) as client:
+        kwargs = {"proxy": proxy, "timeout": 20}
+        if not is_paid:
+            jar = _probe_cookies()
+            if jar is not None:
+                kwargs["cookies"] = jar
+        async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.get(_PROXY_PROBE_URL if is_paid else _STATIC_PROBE_URL,
                                     follow_redirects=not is_paid)
         if resp.status_code >= 400:
@@ -244,8 +305,11 @@ async def _probe_one(proxy):
         body = resp.text or ""
         if all(m in body for m in _STATIC_OK_MARKERS):
             return True, ""
-        return False, ("YouTube answered but without a playable page "
-                       "(IP flagged: bot-check or 'unavailable')")
+        # Name what YouTube actually said. "LOGIN_REQUIRED" with cookies
+        # configured means the session expired (rotate them); the old wording
+        # blamed the IP for every case and sent us hunting the wrong thing.
+        return False, (f"YouTube answered but the video is not playable "
+                       f"(playabilityStatus: {_playability(body)})")
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
 
