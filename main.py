@@ -28,7 +28,7 @@ import llm_backend
 from clip_selection import (build_transcript_windows, clip_count_targets,
                             clip_duration_bounds, snap_clip_to_words,
                             trim_to_best)
-from ffmpeg_utils import (video_encode_args, audio_encode_args, QUALITY,
+from ffmpeg_utils import (video_encode_args, audio_encode_args, cut_clip, QUALITY,
                           QUALITY_FAST, METADATA_SCRUB)
 from dotenv import load_dotenv
 import json
@@ -1997,16 +1997,7 @@ if __name__ == '__main__':
 
                 try:
                     # ffmpeg cut — re-encoding for precision on strict seconds
-                    cut_command = [
-                        'ffmpeg', '-y',
-                        '-ss', str(start),
-                        '-to', str(end),
-                        '-i', input_video,
-                        *video_encode_args(QUALITY_FAST),
-                        *audio_encode_args(),
-                        clip_temp_path
-                    ]
-                    subprocess.run(cut_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                    cut_clip(input_video, clip_temp_path, start, end, i + 1)
 
                     success = render_clip(clip_temp_path, clip_final_path, output_format)
                     # Layer order: watermark burns into the canonical (so any
